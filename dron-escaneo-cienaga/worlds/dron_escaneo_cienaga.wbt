@@ -1,0 +1,135 @@
+#VRML_SIM R2023b utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/robots/dji/mavic/protos/Mavic2Pro.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/floors/protos/RectangleArena.proto"
+
+WorldInfo {
+  info [
+    "Dron de escaneo para prevención de accidentes viales - Ciénaga, Magdalena"
+    "Proyecto básico: patrullaje por waypoints + detección simple de obstáculos"
+    "Proyecto final - curso de Simulación - plazo de entrega: 2 meses"
+  ]
+  title "Dron Escaneo Cienaga - Demo basica"
+  basicTimeStep 8
+}
+Viewpoint {
+  orientation -0.3 0.3 0.9 1.6
+  position 0 -25 20
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 60 20
+  floorTileSize 2 2
+  floorAppearance Parquetry {
+    type "light strip"
+  }
+}
+
+# Carretera representada como una franja oscura sobre el piso
+Solid {
+  translation 0 0 0.01
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.15 0.15 0.15
+        roughness 1
+        metalness 0
+      }
+      geometry Box {
+        size 60 6 0.02
+      }
+    }
+  ]
+  name "carretera"
+}
+
+# Linea central de la via (referencia visual)
+Solid {
+  translation 0 0 0.02
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 1 1
+        roughness 1
+      }
+      geometry Box {
+        size 60 0.1 0.01
+      }
+    }
+  ]
+  name "linea_central"
+}
+
+# --- Obstaculos sobre la via (objetivos a detectar) ---
+
+# Obstaculo 1: vehiculo detenido (caja roja)
+Solid {
+  translation -12 0.5 0.4
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.1 0.1
+        roughness 0.6
+      }
+      geometry Box {
+        size 2 1 0.8
+      }
+    }
+  ]
+  name "obstaculo_vehiculo"
+}
+
+# Obstaculo 2: objeto/animal en la via (caja amarilla)
+Solid {
+  translation 3 -0.8 0.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.9 0.8 0.1
+        roughness 0.6
+      }
+      geometry Box {
+        size 0.6 0.6 0.4
+      }
+    }
+  ]
+  name "obstaculo_animal"
+}
+
+# Obstaculo 3: derrumbe/roca (caja gris)
+Solid {
+  translation 14 0.3 0.3
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.4 0.4 0.4
+        roughness 0.9
+      }
+      geometry Box {
+        size 1.2 1.2 0.6
+      }
+    }
+  ]
+  name "obstaculo_roca"
+}
+
+# Dron de escaneo
+Mavic2Pro {
+  translation -20 0 0.1
+  rotation 0 0 1 0
+  name "dron_escaneo"
+  controller "dron_escaneo"
+  cameraSlot [
+    Camera {
+      name "camera"
+      width 400
+      height 240
+      fieldOfView 1
+    }
+  ]
+}
