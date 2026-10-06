@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Entornos virtuales
+.venv/
+venv/
+
+# IDE
+.vscode/
+
+# Logs y archivos temporales
+*.log
+*.tmp
+
+# Archivos generados por Webots
+simulation/webots_output.txt
+simulation/webots_stderr.log
+simulation/webots_stdout.log
+simulation/latest_webots_camera_frame.jpg
+
+# Datos generados por el backend
+backend/storage/data.db
+backend/storage/images/
