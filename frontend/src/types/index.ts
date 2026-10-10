@@ -54,6 +54,9 @@ export interface CameraFrameStream {
   total_detected: number;
   inference_time_ms: number;
   image_id: number;
+  width?: number;
+  height?: number;
+  is_fresh?: boolean;
 }
 
 export interface Incidente {

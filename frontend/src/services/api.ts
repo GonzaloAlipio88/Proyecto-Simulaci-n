@@ -1,12 +1,14 @@
 import type { Drone, TelemetryData, Incidente, CameraStatus } from '../types';
 
-const API_BASE = 'http://127.0.0.1:8000/api/v1';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000') + '/api/v1';
+const HEALTH_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
+
 
 export const api = {
   // Health
   checkHealth: async (): Promise<boolean> => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/health');
+      const res = await fetch(`${HEALTH_URL}/health`);
       const data = await res.json();
       return data.status === 'online';
     } catch {

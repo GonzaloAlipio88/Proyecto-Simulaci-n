@@ -3,36 +3,66 @@ import sys
 import math
 import base64
 import time
+import logging
 from pathlib import Path
+from datetime import datetime, timezone
 import numpy as np
 
-# Ensure Webots controller library and DLLs can be imported correctly
-candidates = [
-    os.environ.get("WEBOTS_HOME", ""),
-    r"C:\Users\Usuario\AppData\Local\Programs\Webots",
-    r"C:\Program Files\Webots"
-]
-webots_home = next((c for c in candidates if c and os.path.exists(os.path.join(c, "lib", "controller", "Controller.dll"))), None)
+logger = logging.getLogger("drone_supervisor")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
-if webots_home:
-    os.environ["WEBOTS_HOME"] = webots_home
-    lib_ctrl = os.path.join(webots_home, "lib", "controller")
-    mingw_bin = os.path.join(webots_home, "msys64", "mingw64", "bin")
-    if hasattr(os, "add_dll_directory"):
-        if os.path.exists(lib_ctrl):
-            os.add_dll_directory(lib_ctrl)
-        if os.path.exists(mingw_bin):
-            os.add_dll_directory(mingw_bin)
-    
-    for py_folder in ["python", "python312", "python311", "python310", "python39", "python38"]:
-        webots_py_path = os.path.join(lib_ctrl, py_folder)
-        if os.path.exists(webots_py_path) and webots_py_path not in sys.path:
-            sys.path.insert(0, webots_py_path)
+# --------------------------------------------------------------------------
+# Cross-platform Webots library resolution
+# Windows: looks for Controller.dll
+# Linux/macOS (Webots Cloud): WEBOTS_HOME env var must be set, or
+#   the controller Python path is already injected by Webots itself.
+# --------------------------------------------------------------------------
+_platform = sys.platform
+
+if _platform == "win32":
+    _win_candidates = [
+        os.environ.get("WEBOTS_HOME", ""),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Webots"),
+        r"C:\Program Files\Webots",
+    ]
+    webots_home = next(
+        (c for c in _win_candidates
+         if c and os.path.exists(os.path.join(c, "lib", "controller", "Controller.dll"))),
+        None
+    )
+    if webots_home:
+        os.environ["WEBOTS_HOME"] = webots_home
+        lib_ctrl = os.path.join(webots_home, "lib", "controller")
+        mingw_bin = os.path.join(webots_home, "msys64", "mingw64", "bin")
+        if hasattr(os, "add_dll_directory"):
+            for _d in [lib_ctrl, mingw_bin]:
+                if os.path.exists(_d):
+                    os.add_dll_directory(_d)
+        for _py_folder in ["python", "python312", "python311", "python310"]:
+            _wpy = os.path.join(lib_ctrl, _py_folder)
+            if os.path.exists(_wpy) and _wpy not in sys.path:
+                sys.path.insert(0, _wpy)
+                break
+else:
+    # Linux/macOS: Webots injects the controller path automatically.
+    # If WEBOTS_HOME is set we add the python binding path.
+    _wh = os.environ.get("WEBOTS_HOME", "")
+    if _wh:
+        _linux_pypath = os.path.join(_wh, "lib", "controller", "python")
+        if os.path.exists(_linux_pypath) and _linux_pypath not in sys.path:
+            sys.path.insert(0, _linux_pypath)
 
 try:
     from controller import Robot  # type: ignore
 except ImportError:
     Robot = None
+    logger.warning("Webots 'controller' module not found. Will fail at runtime if not in simulation.")
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+    logger.error("opencv-python not installed. Camera capture will be disabled.")
 
 # Controller local modules
 script_dir = Path(__file__).resolve().parent
@@ -232,28 +262,33 @@ class DroneSupervisorController:
                 )
 
             # 5. Capture & Send Camera Frame (~2.5 Hz)
-            if (sim_time - last_frame_time) >= 0.40 and self.camera:
+            if (sim_time - last_frame_time) >= 0.40 and self.camera and cv2 is not None:
                 last_frame_time = sim_time
                 img_data = self.camera.getImage()
                 if img_data:
                     w = self.camera.getWidth()
                     h = self.camera.getHeight()
-                    np_arr = np.frombuffer(img_data, dtype=np.uint8).reshape((h, w, 4))
-                    bgr = np_arr[:, :, :3]
-                    import cv2
-                    cv2.imwrite(str(evidence_frame_path), bgr)
-                    if not saved_first_frame:
-                        saved_first_frame = True
-                        print(f"[CÁMARA REAL WEBOTS] Primer frame real capturado con éxito ({w}x{h} px). Guardado en {evidence_frame_path.name}")
-                    _, enc = cv2.imencode('.jpg', bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
-                    b64 = base64.b64encode(enc).decode('utf-8')
-                    self.comm.send_camera_frame(
-                        image_base64=b64,
-                        pos_x=pos_x,
-                        pos_y=pos_y,
-                        pos_z=altitude,
-                        run_detection=True
-                    )
+                    if w > 0 and h > 0:
+                        np_arr = np.frombuffer(img_data, dtype=np.uint8).reshape((h, w, 4))
+                        bgr = np_arr[:, :, :3].copy()  # BGRA -> BGR, contiguous copy
+                        # Write local evidence frame (latest frame from real Webots camera)
+                        cv2.imwrite(str(evidence_frame_path), bgr)
+                        if not saved_first_frame:
+                            saved_first_frame = True
+                            logger.info(f"[CÁMARA REAL WEBOTS] Primer frame capturado ({w}x{h} px) -> {evidence_frame_path.name}")
+                            print(f"[CÁMARA REAL WEBOTS] Primer frame real capturado con éxito ({w}x{h} px). Guardado en {evidence_frame_path.name}")
+                        ok, enc = cv2.imencode('.jpg', bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                        if ok:
+                            b64 = base64.b64encode(enc).decode('utf-8')
+                            iso_ts = datetime.now(timezone.utc).isoformat()
+                            self.comm.send_camera_frame(
+                                image_base64=b64,
+                                pos_x=pos_x,
+                                pos_y=pos_y,
+                                pos_z=altitude,
+                                run_detection=True,
+                                timestamp=iso_ts
+                            )
 
             if self.nav.mission_complete and flight_state == "LANDED":
                 print("[Webots Drone Supervisor] MISIÓN COMPLETADA CON ÉXITO. APAGANDO SISTEMAS.")

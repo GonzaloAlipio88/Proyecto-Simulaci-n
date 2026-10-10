@@ -1,3 +1,4 @@
+import os
 import base64
 import json
 import logging
@@ -11,13 +12,14 @@ class DroneCommunicationClient:
     """Handles communication between Webots drone simulation and FastAPI backend."""
 
     def __init__(self, backend_url: str = "http://127.0.0.1:8000", drone_id: str = "drone-webots-01"):
-        self.backend_url = backend_url.rstrip("/")
+        env_backend = os.environ.get("BACKEND_URL")
+        self.backend_url = (env_backend or backend_url).rstrip("/")
         self.drone_id = drone_id
         self.api_prefix = f"{self.backend_url}/api/v1"
         self.session = requests.Session()
         self.is_registered = False
 
-    def register(self, name: str = "Webots Mavic 2 Pro", model: str = "DJI Mavic 2 Pro"):
+    def register(self, name: str = "Webots Mavic 2 Pro", model: str = "DJI Mavic 2 Pro") -> bool:
         payload = {
             "id": self.drone_id,
             "name": name,
@@ -31,10 +33,10 @@ class DroneCommunicationClient:
             "flight_mode": "autonomous"
         }
         try:
-            res = self.session.post(f"{self.api_prefix}/drones", json=payload, timeout=2.0)
-            if res.status_code == 200:
+            res = self.session.post(f"{self.api_prefix}/drones", json=payload, timeout=1.5)
+            if res.status_code in (200, 201):
                 self.is_registered = True
-                logger.info(f"Drone {self.drone_id} registered with backend.")
+                logger.info(f"Drone {self.drone_id} registered with backend at {self.backend_url}.")
                 return True
         except Exception as e:
             logger.warning(f"Could not connect to backend to register drone: {e}")
@@ -71,12 +73,11 @@ class DroneCommunicationClient:
             "state_description": state_description
         }
         try:
-            res = self.session.post(f"{self.api_prefix}/telemetria", json=payload, timeout=1.0)
+            res = self.session.post(f"{self.api_prefix}/telemetria", json=payload, timeout=0.4)
             return res.status_code == 200
         except Exception as e:
             logger.debug(f"Telemetry send failed: {e}")
             return False
-
 
     def send_camera_frame(
         self,
@@ -84,7 +85,8 @@ class DroneCommunicationClient:
         pos_x: float,
         pos_y: float,
         pos_z: float,
-        run_detection: bool = True
+        run_detection: bool = True,
+        timestamp: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         payload = {
             "drone_id": self.drone_id,
@@ -92,12 +94,14 @@ class DroneCommunicationClient:
             "pos_x": round(pos_x, 3),
             "pos_y": round(pos_y, 3),
             "pos_z": round(pos_z, 3),
-            "run_detection": run_detection
+            "run_detection": run_detection,
+            "timestamp": timestamp
         }
         try:
-            res = self.session.post(f"{self.api_prefix}/cameras/frame", json=payload, timeout=3.0)
+            res = self.session.post(f"{self.api_prefix}/cameras/frame", json=payload, timeout=0.8)
             if res.status_code == 200:
                 return res.json()
         except Exception as e:
             logger.debug(f"Frame send failed: {e}")
         return None
+

@@ -1,6 +1,6 @@
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 import cv2
 import numpy as np
@@ -20,20 +20,41 @@ class CameraService:
         self.latest_frames: Dict[str, str] = {}
         self.latest_annotated_frames: Dict[str, str] = {}
         self.last_frame_time: Dict[str, datetime] = {}
+        self.latest_metadata: Dict[str, Dict[str, Any]] = {}
         self.frame_counts: Dict[str, int] = {}
 
     async def ingest_frame(self, db: Session, frame_data: CameraFrameIn) -> Dict[str, Any]:
         drone_id = frame_data.drone_id
         b64_image = frame_data.image_base64
         
-        # Convert base64 to OpenCV BGR image
+        # 1. Validation: Reject empty or non-string base64
+        if not b64_image or not isinstance(b64_image, str) or len(b64_image.strip()) < 10:
+            return {"success": False, "error": "Fotograma vacío o inválido"}
+
+        # 2. Decode to OpenCV BGR image and validate dimensions
         cv_img = image_service.base64_to_cv2(b64_image)
         if cv_img is None:
-            return {"success": False, "error": "No se pudo decodificar la imagen"}
+            return {"success": False, "error": "Datos de imagen corruptos o formato no soportado"}
+
+        h, w = cv_img.shape[:2]
+        now = datetime.now(timezone.utc)
+        if frame_data.timestamp:
+            if frame_data.timestamp.tzinfo is None:
+                captured_time = frame_data.timestamp.replace(tzinfo=timezone.utc)
+            else:
+                captured_time = frame_data.timestamp.astimezone(timezone.utc)
+        else:
+            captured_time = now
 
         self.latest_frames[drone_id] = b64_image
-        self.last_frame_time[drone_id] = datetime.utcnow()
+        self.last_frame_time[drone_id] = captured_time
         self.frame_counts[drone_id] = self.frame_counts.get(drone_id, 0) + 1
+        self.latest_metadata[drone_id] = {
+            "width": w,
+            "height": h,
+            "format": "image/jpeg",
+            "captured_at": captured_time
+        }
 
         detections = []
         annotated_b64 = None
@@ -49,7 +70,7 @@ class CameraService:
                 annotated_b64 = image_service.cv2_to_base64(annotated_cv)
                 self.latest_annotated_frames[drone_id] = annotated_b64
 
-        # Save to database
+        # Save to database (with storage bounded pruning)
         has_detections = len(detections) > 0
         img_record = image_service.save_image(
             db=db,
@@ -85,12 +106,15 @@ class CameraService:
         # Broadcast live camera update & detection alert to WebSocket clients
         await ws_manager.broadcast("camera_stream", {
             "drone_id": drone_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": captured_time.isoformat(),
             "frame_base64": annotated_b64 or b64_image,
             "detections": [d.model_dump() for d in detections],
             "total_detected": len(detections),
             "inference_time_ms": round(elapsed_ms, 2),
-            "image_id": img_record.id
+            "image_id": img_record.id,
+            "width": w,
+            "height": h,
+            "is_fresh": True
         })
 
         return {
@@ -100,13 +124,44 @@ class CameraService:
             "detections_count": len(detections),
             "detections": detections,
             "incidents_created": incidents_created,
-            "inference_time_ms": elapsed_ms
+            "inference_time_ms": elapsed_ms,
+            "width": w,
+            "height": h,
+            "captured_at": captured_time.isoformat()
         }
 
     def get_latest_frame(self, drone_id: str, annotated: bool = True) -> Optional[str]:
         if annotated and drone_id in self.latest_annotated_frames:
             return self.latest_annotated_frames[drone_id]
         return self.latest_frames.get(drone_id)
+
+    def get_latest_frame_info(self, drone_id: str, annotated: bool = True) -> Dict[str, Any]:
+        b64 = self.get_latest_frame(drone_id, annotated=annotated)
+        last_time = self.last_frame_time.get(drone_id)
+        age = None
+        is_fresh = False
+        if last_time:
+            now_utc = datetime.now(timezone.utc)
+            if last_time.tzinfo is None:
+                last_time_aware = last_time.replace(tzinfo=timezone.utc)
+            else:
+                last_time_aware = last_time
+            age = max(0.0, (now_utc - last_time_aware).total_seconds())
+            is_fresh = age <= 4.0
+
+        meta = self.latest_metadata.get(drone_id, {})
+        return {
+            "available": b64 is not None,
+            "drone_id": drone_id,
+            "annotated": annotated,
+            "frame_base64": b64,
+            "captured_at": last_time,
+            "age_seconds": round(age, 2) if age is not None else None,
+            "is_fresh": is_fresh,
+            "width": meta.get("width"),
+            "height": meta.get("height"),
+            "format": meta.get("format", "image/jpeg")
+        }
 
     def get_status(self) -> CameraStatusResponse:
         active_drones = list(self.latest_frames.keys())
@@ -115,8 +170,9 @@ class CameraService:
             is_active=len(active_drones) > 0,
             last_frame_timestamp=last_time,
             resolution="640x480",
-            fps=10.0 if len(active_drones) > 0 else 0.0,
+            fps=2.5 if len(active_drones) > 0 else 0.0,
             connected_drones=active_drones
         )
 
 camera_service = CameraService()
+

@@ -1,5 +1,5 @@
-import type { FC } from 'react';
-import { Video, Scan, AlertTriangle, Cpu, Layers } from 'lucide-react';
+import { useMemo, type FC } from 'react';
+import { Video, Scan, AlertTriangle, Cpu, Layers, Clock, WifiOff } from 'lucide-react';
 import type { CameraFrameStream } from '../types';
 
 interface LiveCameraFeedProps {
@@ -11,7 +11,18 @@ export const LiveCameraFeed: FC<LiveCameraFeedProps> = ({ streamData, droneId })
   const frameBase64 = streamData?.frame_base64;
   const latency = streamData?.inference_time_ms || 0;
   const count = streamData?.total_detected || 0;
+  const width = streamData?.width ?? 640;
+  const height = streamData?.height ?? 480;
+  const isFresh = streamData?.is_fresh !== false; // treat undefined as fresh
 
+  const captureLabel = useMemo(() => {
+    if (!streamData?.timestamp) return null;
+    try {
+      return new Date(streamData.timestamp).toLocaleTimeString('es-CO', { hour12: false });
+    } catch {
+      return null;
+    }
+  }, [streamData?.timestamp]);
 
   return (
     <div className="card camera-feed-card">
@@ -24,10 +35,21 @@ export const LiveCameraFeed: FC<LiveCameraFeedProps> = ({ streamData, droneId })
           <span className="badge badge-fps">
             <Cpu size={12} className="inline mr-1" /> {latency.toFixed(1)} ms
           </span>
-          <span className="badge badge-res">640x480</span>
-          <span className="badge badge-live">
-            <span className="live-dot"></span> EN VIVO
-          </span>
+          <span className="badge badge-res">{width}×{height}</span>
+          {frameBase64 && (
+            <span className={`badge ${isFresh ? 'badge-live' : 'badge-stale'}`}>
+              {isFresh ? (
+                <><span className="live-dot"></span>EN VIVO</>
+              ) : (
+                <><WifiOff size={12} className="inline mr-1" />DATO ANTIGUO</>
+              )}
+            </span>
+          )}
+          {!frameBase64 && (
+            <span className="badge badge-live">
+              <span className="live-dot"></span> EN VIVO
+            </span>
+          )}
         </div>
       </div>
 
@@ -64,6 +86,22 @@ export const LiveCameraFeed: FC<LiveCameraFeedProps> = ({ streamData, droneId })
               <div className="reticle-corner bottom-right"></div>
               <div className="reticle-center"></div>
 
+              {/* Capture timestamp */}
+              {captureLabel && (
+                <div className="capture-timestamp">
+                  <Clock size={11} className="inline mr-1" />
+                  {captureLabel}
+                </div>
+              )}
+
+              {/* Stale-data warning */}
+              {!isFresh && (
+                <div className="stale-warning">
+                  <WifiOff size={13} className="inline mr-1" />
+                  Imagen podría estar desactualizada
+                </div>
+              )}
+
               {/* In-view alerts */}
               {count > 0 && (
                 <div className="in-view-alert">
@@ -97,3 +135,5 @@ export const LiveCameraFeed: FC<LiveCameraFeedProps> = ({ streamData, droneId })
     </div>
   );
 };
+
+

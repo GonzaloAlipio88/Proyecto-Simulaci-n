@@ -23,3 +23,5 @@ simulation/latest_webots_camera_frame.jpg
 # Datos generados por el backend
 backend/storage/data.db
 backend/storage/images/
+backend/.venv312/ 
+frontend/dist/
