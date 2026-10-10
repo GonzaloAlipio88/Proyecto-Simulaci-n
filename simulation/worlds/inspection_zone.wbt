@@ -1,0 +1,227 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/Floor.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/SandyGround.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/road/protos/Road.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Pavement.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/factory/containers/protos/CardboardBox.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/trees/protos/Pine.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/dji/mavic/protos/Mavic2Pro.proto"
+
+WorldInfo {
+  info [
+    "Sistema de Vigilancia y Escaneo con Dron Autónomo"
+    "Detección de Postes de Luz, Vegetación Invasiva y Obstrucciones de Vía"
+  ]
+  title "Zona de Inspeccion de Vias - Dron de Vigilancia"
+  basicTimeStep 8
+  defaultDamping Damping {
+    linear 0.5
+    angular 0.5
+  }
+  coordinateSystem "ENU"
+}
+Viewpoint {
+  orientation 0.25 0.25 -0.93 1.85
+  position 12.0 -20.0 16.0
+  near 0.2
+  follow "Mavic 2 PRO"
+  followSmoothness 0.2
+}
+TexturedBackground {
+  luminosity 3
+}
+TexturedBackgroundLight {
+}
+Floor {
+  size 200 200
+  tileSize 4 4
+  appearance SandyGround {
+  }
+}
+
+# Carretera / Vía principal bajo inspección
+Road {
+  translation 0 -50 0.02
+  rotation 0 0 1 1.5708
+  width 4.0
+  numberOfLanes 2
+  lines [
+    RoadLine {
+    }
+  ]
+  wayPoints [
+    0 0 0
+    100 0 0
+  ]
+  appearance Pavement {
+  }
+}
+
+# --- OBJETIVO 1: POSTES DE LUZ (Estructuras lineales verticales a los lados de la vía) ---
+Solid {
+  name "poste_luz_1"
+  translation 3.2 -30 2.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.9
+        metalness 0.8
+        roughness 0.2
+      }
+      geometry Cylinder {
+        height 5.0
+        radius 0.12
+      }
+    }
+    Transform {
+      translation -0.6 0 2.3
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.9 0.9 0.3
+            emissiveColor 1 1 0.6
+          }
+          geometry Box {
+            size 1.2 0.3 0.2
+          }
+        }
+      ]
+    }
+  ]
+}
+
+Solid {
+  name "poste_luz_2"
+  translation 3.2 0 2.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.9
+        metalness 0.8
+        roughness 0.2
+      }
+      geometry Cylinder {
+        height 5.0
+        radius 0.12
+      }
+    }
+    Transform {
+      translation -0.6 0 2.3
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.9 0.9 0.3
+            emissiveColor 1 1 0.6
+          }
+          geometry Box {
+            size 1.2 0.3 0.2
+          }
+        }
+      ]
+    }
+  ]
+}
+
+Solid {
+  name "poste_luz_3"
+  translation 3.2 30 2.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.9
+        metalness 0.8
+        roughness 0.2
+      }
+      geometry Cylinder {
+        height 5.0
+        radius 0.12
+      }
+    }
+    Transform {
+      translation -0.6 0 2.3
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.9 0.9 0.3
+            emissiveColor 1 1 0.6
+          }
+          geometry Box {
+            size 1.2 0.3 0.2
+          }
+        }
+      ]
+    }
+  ]
+}
+
+# --- OBJETIVO 2: VEGETACIÓN INVASIVA (Arbustos densos invadiendo la vía) ---
+Pine {
+  name "pine_tree_1"
+  translation -2.2 -15 0
+}
+Pine {
+  name "pine_tree_2"
+  translation -1.0 -12 0
+}
+Solid {
+  name "vegetacion_invasiva_parche_1"
+  translation -0.8 15 0.3
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.15 0.55 0.12
+        roughness 0.9
+      }
+      geometry Box {
+        size 2.5 3.0 0.6
+      }
+    }
+  ]
+}
+
+# --- OBJETIVO 3: OBSTRUCCIONES EN VÍA (Cajas y escombros bloqueando el carril) ---
+CardboardBox {
+  name "cardboard_box_1"
+  translation 0.2 -5 0.3
+  size 0.8 0.8 0.6
+  mass 5
+}
+CardboardBox {
+  name "cardboard_box_2"
+  translation -0.4 -4.5 0.3
+  size 0.7 0.7 0.6
+  mass 4
+}
+Solid {
+  name "obstruccion_roca_via"
+  translation 0.5 25 0.35
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.35 0.35 0.35
+        roughness 0.8
+      }
+      geometry Sphere {
+        radius 0.4
+      }
+    }
+  ]
+}
+
+# --- ROBOT DRON CON CÁMARA Y CONTROLADOR DE SUPERVISIÓN ---
+Mavic2Pro {
+  translation 0 -45 0.2
+  rotation 0 0 1 1.5708
+  name "Mavic 2 PRO"
+  controller "drone_supervisor"
+  cameraSlot [
+    Camera {
+      width 640
+      height 480
+      fieldOfView 1.2
+    }
+  ]
+}
