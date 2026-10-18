@@ -81,3 +81,27 @@ export interface CameraStatus {
   fps: number;
   connected_drones: string[];
 }
+
+export interface DetectionStatus {
+  model_type: string;
+  is_loaded: boolean;
+  confidence_threshold: number;
+  yolo_ready: boolean;
+  yolo_model_loaded: boolean;
+  configured_model_type: string;
+  ultralytics_available: boolean;
+  weights_path?: string;
+  weights_exist: boolean;
+  active_model: string;
+  backend: string;
+  device: string;
+  is_available: boolean;
+  is_fallback: boolean;
+  is_diagnostic: boolean;
+  model_mode?: string;
+  load_error?: string | null;
+  last_inference_error?: string | null;
+  classes?: string[];
+  total_classes?: number;
+}
+

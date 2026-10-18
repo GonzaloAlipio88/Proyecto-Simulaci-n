@@ -1,12 +1,13 @@
 import type { FC } from 'react';
 import { Target, Zap, CheckCircle2 } from 'lucide-react';
-import type { DetectionItem } from '../types';
+import type { DetectionItem, DetectionStatus } from '../types';
 
 interface DetectionViewerProps {
   detections: DetectionItem[];
+  detectionStatus?: DetectionStatus | null;
 }
 
-export const DetectionViewer: FC<DetectionViewerProps> = ({ detections }) => {
+export const DetectionViewer: FC<DetectionViewerProps> = ({ detections, detectionStatus = null }) => {
 
   const getBadgeClass = (label: string) => {
     switch (label) {
@@ -39,7 +40,25 @@ export const DetectionViewer: FC<DetectionViewerProps> = ({ detections }) => {
       <div className="card-header">
         <div className="card-title-group">
           <Target className="card-icon text-cyan" />
-          <h2 className="card-title">INSPECTOR DE VISIÓN ARTIFICIAL (IA)</h2>
+          <div>
+            <h2 className="card-title">INSPECTOR DE VISIÓN ARTIFICIAL (IA)</h2>
+            {detectionStatus && (
+              <div className="detector-status-sub">
+                <span className={`status-badge-mini ${detectionStatus.yolo_ready ? 'badge-yolo-active' : 'badge-fallback-active'}`}>
+                  {detectionStatus.yolo_ready
+                    ? `● YOLO Real Activo (${detectionStatus.active_model}) · ${detectionStatus.device.toUpperCase()}`
+                    : detectionStatus.is_fallback
+                    ? '▲ Fallback Activo: OpenCV Heurístico'
+                    : '■ Diagnóstico'}
+                </span>
+                {detectionStatus.model_mode && (
+                  <span className="detector-mode-tag">
+                    {detectionStatus.model_mode === 'pretrained_generic' ? 'Modo Preentrenado COCO' : 'Especializado Vial'}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
         <span className="count-pill">{detections.length} activos</span>
       </div>

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
+
 import logging
 from backend.app.models.dron import Drone
 from backend.app.schemas.dron import DroneCreate, DroneUpdate, DroneCommand
@@ -72,7 +73,7 @@ class DroneService:
             "drone_id": drone_id,
             "command": cmd.command,
             "params": cmd.params or {},
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
         return {

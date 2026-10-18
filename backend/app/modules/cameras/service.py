@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import logging
 from datetime import datetime, timezone
@@ -5,6 +6,7 @@ from typing import Optional, Dict, Any, List
 import cv2
 import numpy as np
 from sqlalchemy.orm import Session
+from backend.app.core.config import settings
 from backend.app.schemas.camera import CameraFrameIn, CameraStatusResponse
 from backend.app.modules.imagenes.service import image_service
 from backend.app.modules.deteccion.service import detection_service
@@ -61,14 +63,24 @@ class CameraService:
         annotated_cv = None
         elapsed_ms = 0.0
 
-        if frame_data.run_detection:
-            detections, annotated_cv, elapsed_ms = detection_service.process_frame(
+        interval = getattr(settings, "VISION_ANALYSIS_INTERVAL_FRAMES", 1)
+        count = self.frame_counts[drone_id]
+        should_run = frame_data.run_detection and (count % interval == 0)
+
+        if should_run:
+            frame_id_str = f"frame_{drone_id}_{count}"
+            detections, annotated_cv, elapsed_ms = await asyncio.to_thread(
+                detection_service.process_frame,
                 cv_img,
-                drone_id=drone_id
+                drone_id,
+                None,
+                frame_id_str,
+                captured_time
             )
             if annotated_cv is not None and len(detections) > 0:
                 annotated_b64 = image_service.cv2_to_base64(annotated_cv)
-                self.latest_annotated_frames[drone_id] = annotated_b64
+                if annotated_b64:
+                    self.latest_annotated_frames[drone_id] = annotated_b64
 
         # Save to database (with storage bounded pruning)
         has_detections = len(detections) > 0
@@ -88,9 +100,10 @@ class CameraService:
         incidents_created = []
         for det in detections:
             if det.confidence >= 0.70 or det.severity in ["alta", "critica"]:
+                inc_type = det.label if det.label in ["poste_luz", "vegetacion_invasiva", "obstruccion_via"] else "otro"
                 inc_create = IncidenteCreate(
                     drone_id=drone_id,
-                    tipo=det.label,
+                    tipo=inc_type,
                     severidad=det.severity,
                     descripcion=det.description or f"Detección de {det.label} con confianza {det.confidence*100:.0f}%",
                     pos_x=frame_data.pos_x or 0.0,

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 import logging
 from backend.app.models.telemetria import TelemetryRecord
@@ -14,7 +14,7 @@ class TelemetryService:
         # Create record in DB
         record = TelemetryRecord(
             drone_id=telemetry_data.drone_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             pos_x=telemetry_data.pos_x,
             pos_y=telemetry_data.pos_y,
             pos_z=telemetry_data.pos_z,
@@ -41,9 +41,10 @@ class TelemetryService:
             drone.flight_mode = telemetry_data.flight_mode
             drone.current_waypoint = telemetry_data.current_waypoint
             drone.current_mission = telemetry_data.current_mission
-            drone.last_seen_at = datetime.utcnow()
+            drone.last_seen_at = datetime.now(timezone.utc)
             if drone.status == "idle" and telemetry_data.pos_z > 0.5:
                 drone.status = "flying"
+
         else:
             # Auto-register drone if not yet registered
             new_drone = Drone(

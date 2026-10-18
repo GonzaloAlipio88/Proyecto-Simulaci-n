@@ -1,27 +1,62 @@
 # Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Entornos virtuales
+# Virtual Environments
 .venv/
+env/
 venv/
+ENV/
 
-# IDE
+# Testing & IDEs
+.pytest_cache/
+.coverage
+htmlcov/
 .vscode/
+.idea/
 
-# Logs y archivos temporales
-*.log
-*.tmp
+# Weights & Large Models (Ultralytics / PyTorch)
+*.pt
+*.pth
+*.onnx
+*.engine
+storage/weights/*.pt
+backend/storage/weights/*.pt
+!storage/weights/README.md
+!backend/storage/weights/README.md
 
-# Archivos generados por Webots
-simulation/webots_output.txt
-simulation/webots_stderr.log
+# Webots temporary logs
 simulation/webots_stdout.log
-simulation/latest_webots_camera_frame.jpg
+simulation/webots_stderr.log
+simulation/webots_output.txt
+webots_test.log
 
-# Datos generados por el backend
-backend/storage/data.db
-backend/storage/images/
-backend/.venv312/ 
+# Temporary test images
+backend/storage/images/annotated_*
+backend/storage/images/drone-sim-*
+backend/storage/images/drone-webots-vision-test_*
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
 frontend/dist/
+frontend/dist-ssr/
+*.local

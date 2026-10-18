@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from backend.app.core.config import settings
 from backend.app.models.imagen import ImageRecord
 from backend.app.schemas.imagen import ImageResponse
+from backend.app.modules.deteccion.image_processor import ImageProcessor
 
 class ImageService:
     def __init__(self, max_stored_images: int = 60):
@@ -18,27 +19,14 @@ class ImageService:
         self.max_stored_images = max_stored_images
 
     def base64_to_cv2(self, b64_str: str) -> Optional[np.ndarray]:
-        """Safely decode base64 string to OpenCV BGR numpy array."""
-        if not b64_str or not isinstance(b64_str, str):
-            return None
-        try:
-            if "," in b64_str:
-                b64_str = b64_str.split(",", 1)[1]
-            img_bytes = base64.b64decode(b64_str)
-            if not img_bytes:
-                return None
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if img is None or img.size == 0 or img.shape[0] == 0 or img.shape[1] == 0:
-                return None
-            return img
-        except Exception:
-            return None
+        """Safely decode base64 string to OpenCV BGR numpy array using ImageProcessor."""
+        return ImageProcessor.base64_to_bgr(b64_str)
 
     def cv2_to_base64(self, image: np.ndarray, quality: int = 85) -> str:
-        """Encode OpenCV BGR image to base64 JPEG string."""
-        _, buffer = cv2.imencode('.jpg', image, [int(cv2.IMWRITE_JPEG_QUALITY), quality])
-        return base64.b64encode(buffer).decode('utf-8')
+        """Encode OpenCV BGR image to base64 JPEG string using ImageProcessor."""
+        encoded = ImageProcessor.bgr_to_base64(image, quality=quality)
+        return encoded or ""
+
 
     def _prune_storage_if_needed(self):
         """Bounded storage retention: removes oldest image files when limit is reached."""
