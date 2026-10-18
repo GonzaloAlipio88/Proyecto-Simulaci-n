@@ -13,10 +13,10 @@ class Incidente(Base):
     severidad = Column(String(20), default="media") # baja, media, alta, critica
     descripcion = Column(String(500), nullable=False)
     
-    # 3D Coordinates where the incident was detected
-    pos_x = Column(Float, nullable=False)
-    pos_y = Column(Float, nullable=False)
-    pos_z = Column(Float, nullable=False)
+    # 3D Coordinates where the incident was detected (simulation Webots cartesian meters, or null if unknown)
+    pos_x = Column(Float, nullable=True)
+    pos_y = Column(Float, nullable=True)
+    pos_z = Column(Float, nullable=True)
     
     # Detection metrics
     confidence = Column(Float, default=0.0)

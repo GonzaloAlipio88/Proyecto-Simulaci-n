@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 import logging
 from backend.app.models.incidente import Incidente
@@ -21,8 +21,9 @@ class IncidenteService:
             confidence=inc_data.confidence,
             imagen_id=inc_data.imagen_id,
             estado=inc_data.estado,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
+
         db.add(incidente)
         db.commit()
         db.refresh(incidente)

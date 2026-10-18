@@ -31,11 +31,21 @@ class Settings(BaseSettings):
         "*"
     ]
     
-    # Computer Vision / YOLO placeholder settings
-    DETECTION_MODEL_TYPE: str = "heuristic" # "heuristic" or "yolo"
-    YOLO_WEIGHTS_PATH: str = str(BASE_DIR / "storage" / "weights" / "best.pt")
+    # Computer Vision / YOLO settings
+    DETECTION_MODEL_TYPE: str = "yolo" # "yolo", "heuristic", or "diagnostic"
+    YOLO_WEIGHTS_PATH: str = str(
+        (BASE_DIR / "storage" / "weights" / "best.pt")
+        if (BASE_DIR / "storage" / "weights" / "best.pt").exists()
+        else (BASE_DIR / "storage" / "weights" / "yolov8n.pt")
+    )
+    YOLO_WEIGHTS_DIR: Path = BASE_DIR / "storage" / "weights"
+    YOLO_DEVICE: str = "cpu" # "cpu", "cuda", or "auto"
     DETECTION_CONFIDENCE_THRESHOLD: float = 0.50
-    
+    DETECTION_FALLBACK_TO_HEURISTIC: bool = True # If YOLO weights/lib missing, fallback to OpenCV heuristic
+    VISION_SKIP_FRAMES_ON_BUSY: bool = True # Drop frame if vision engine is currently busy
+    VISION_ANALYSIS_INTERVAL_FRAMES: int = 1 # Analyze every N frames (1 = all frames)
+
+
     # Classes target
     TARGET_CLASSES: List[str] = [
         "poste_luz",
@@ -51,3 +61,4 @@ settings = Settings()
 # Ensure directories exist
 settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 settings.IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+settings.YOLO_WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)

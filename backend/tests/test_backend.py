@@ -169,3 +169,73 @@ def test_websocket_connection(client):
         assert pong["type"] == "pong"
         assert pong["payload"] == "test"
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Semana 3 & 4 — Nuevos tests de validación de cámara
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_camera_frame_with_timestamp(client):
+    """Frame with explicit ISO timestamp must be accepted and reflected in frame-info."""
+    img = np.ones((480, 640, 3), dtype=np.uint8) * 80
+    _, buffer = cv2.imencode('.jpg', img)
+    b64_str = base64.b64encode(buffer).decode('utf-8')
+
+    frame_payload = {
+        "drone_id": "drone-sim-01",
+        "image_base64": b64_str,
+        "pos_x": 10.0,
+        "pos_y": 5.0,
+        "pos_z": 20.0,
+        "run_detection": False,
+        "timestamp": "2024-01-01T12:00:00+00:00"
+    }
+    res = client.post("/api/v1/cameras/frame", json=frame_payload)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["success"] is True
+
+    # Verify frame-info endpoint reflects the frame
+    res_info = client.get("/api/v1/cameras/frame-info/drone-sim-01")
+    assert res_info.status_code == 200, res_info.text
+    info = res_info.json()
+    assert info["available"] is True
+    assert info["width"] > 0
+    assert info["height"] > 0
+
+
+def test_camera_frame_rejects_empty_base64(client):
+    """Empty image_base64 must be rejected with a 422 or 400."""
+    payload = {
+        "drone_id": "drone-sim-01",
+        "image_base64": "",
+        "pos_x": 0.0,
+        "pos_y": 0.0,
+        "pos_z": 0.0,
+        "run_detection": False
+    }
+    res = client.post("/api/v1/cameras/frame", json=payload)
+    assert res.status_code in (400, 422), f"Expected 400 or 422, got {res.status_code}: {res.text}"
+
+
+def test_camera_frame_rejects_corrupt_base64(client):
+    """Corrupt (non-decodable image) base64 must be rejected."""
+    payload = {
+        "drone_id": "drone-sim-01",
+        "image_base64": base64.b64encode(b"not-an-image-at-all").decode("utf-8"),
+        "pos_x": 0.0,
+        "pos_y": 0.0,
+        "pos_z": 0.0,
+        "run_detection": False
+    }
+    res = client.post("/api/v1/cameras/frame", json=payload)
+    assert res.status_code in (400, 422), f"Expected 400 or 422, got {res.status_code}: {res.text}"
+
+
+def test_frame_info_no_frame(client):
+    """frame-info for a drone that has never sent a frame should return available=False."""
+    res = client.get("/api/v1/cameras/frame-info/drone-never-connected")
+    assert res.status_code == 200, res.text
+    info = res.json()
+    assert info["available"] is False
+
+

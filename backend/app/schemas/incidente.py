@@ -7,9 +7,10 @@ class IncidenteBase(BaseModel):
     tipo: Literal["poste_luz", "vegetacion_invasiva", "obstruccion_via", "otro"]
     severidad: Literal["baja", "media", "alta", "critica"] = "media"
     descripcion: str
-    pos_x: float
-    pos_y: float
-    pos_z: float
+    pos_x: Optional[float] = None
+    pos_y: Optional[float] = None
+    pos_z: Optional[float] = None
+    coordenadas_tipo: Optional[str] = "simulacion_webots"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     imagen_id: Optional[int] = None
     estado: Literal["reportado", "en_revision", "atendido", "descartado"] = "reportado"

@@ -65,6 +65,8 @@ export const IncidentLog: FC<IncidentLogProps> = ({ latestWsIncident }) => {
         return 'Vegetación Invasiva';
       case 'obstruccion_via':
         return 'Obstrucción Vía';
+      case 'otro':
+        return 'Anomalía / Otro';
       default:
         return tipo;
     }
@@ -128,7 +130,13 @@ export const IncidentLog: FC<IncidentLogProps> = ({ latestWsIncident }) => {
                     </span>
                   </td>
                   <td className="inc-coords">
-                    [{inc.pos_x.toFixed(1)}, {inc.pos_y.toFixed(1)}, {inc.pos_z.toFixed(1)}m]
+                    {inc.pos_x != null && inc.pos_y != null && inc.pos_z != null ? (
+                      <span title="Coordenadas locales cartesianas en simulación Webots">
+                        [{inc.pos_x.toFixed(1)}, {inc.pos_y.toFixed(1)}, {inc.pos_z.toFixed(1)}m]
+                      </span>
+                    ) : (
+                      <span className="opacity-50 italic">Sin posición</span>
+                    )}
                   </td>
                   <td className="inc-desc" title={inc.descripcion}>
                     {inc.descripcion}
