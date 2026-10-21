@@ -1,4 +1,4 @@
-import type { Drone, TelemetryData, Incidente, CameraStatus, DetectionStatus } from '../types';
+import type { Drone, TelemetryData, Incidente, CameraStatus, DetectionStatus, ImageAnalysisResponse } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000') + '/api/v1';
 const HEALTH_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
@@ -119,6 +119,43 @@ export const api = {
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error('Error ejecutando clasificación de detecciones');
+    return res.json();
+  },
+
+  // Semana 7: Carga y análisis de imágenes JPG/PNG externas
+  analyzeImage: async (
+    file: File,
+    confidenceThreshold?: number,
+    saveToStorage = true
+  ): Promise<ImageAnalysisResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const params = new URLSearchParams();
+    if (confidenceThreshold !== undefined) {
+      params.append('confidence_threshold', confidenceThreshold.toString());
+    }
+    params.append('save_to_storage', saveToStorage.toString());
+
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`${API_BASE}/imagenes/analyze${queryString}`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) {
+      let errorDetail = 'Error al analizar la imagen';
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.detail) {
+          errorDetail = errJson.detail;
+        }
+      } catch {
+        // Fallback
+      }
+      throw new Error(errorDetail);
+    }
+
     return res.json();
   }
 };

@@ -53,6 +53,11 @@ class Settings(BaseSettings):
         "obstruccion_via"
     ]
 
+    # External Image Upload settings (Semana 7)
+    MAX_IMAGE_UPLOAD_SIZE_BYTES: int = 10 * 1024 * 1024  # 10 MB limit
+    ALLOWED_IMAGE_EXTENSIONS: List[str] = [".jpg", ".jpeg", ".png"]
+    ALLOWED_IMAGE_MIMES: List[str] = ["image/jpeg", "image/png", "image/jpg"]
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 

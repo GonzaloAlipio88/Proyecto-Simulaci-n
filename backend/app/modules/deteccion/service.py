@@ -92,12 +92,13 @@ class DetectionService:
         drone_id: str,
         threshold: Optional[float] = None,
         frame_id: Optional[str] = None,
-        timestamp: Optional[datetime] = None
+        timestamp: Optional[datetime] = None,
+        skip_if_busy: Optional[bool] = None
     ) -> Tuple[List[DetectionItem], Optional[np.ndarray], float]:
         """
-        Processes a single camera frame:
+        Processes a single camera frame or external image:
         1. Validates image using OpenCV ImageProcessor.
-        2. Applies non-blocking concurrency guard if engine is busy.
+        2. Applies non-blocking concurrency guard if engine is busy (skippable for uploads).
         3. Executes inference via VisionModel.analyze contract.
         4. Generates annotated image.
         5. Measures elapsed inference time in milliseconds.
@@ -108,41 +109,42 @@ class DetectionService:
         # 1. Validation
         valid, err = ImageProcessor.validate_image_array(image)
         if not valid:
-            logger.warning(f"Frame de dron '{drone_id}' descartado por validación de imagen: {err}")
+            logger.warning(f"Frame de dron/imagen '{drone_id}' descartado por validación de imagen: {err}")
             return [], None, 0.0
 
-        # 2. Concurrency guard (skip if already processing to avoid unbounded backlog)
-        skip_busy = getattr(settings, "VISION_SKIP_FRAMES_ON_BUSY", True)
-        if skip_busy and self._is_processing:
+        # 2. Concurrency guard (skip if already processing to avoid unbounded backlog in video streams)
+        should_skip = getattr(settings, "VISION_SKIP_FRAMES_ON_BUSY", True) if skip_if_busy is None else skip_if_busy
+        if should_skip and self._is_processing:
             logger.debug(f"Vision Engine ocupado; descartando inferencia para frame de '{drone_id}'.")
             return [], None, 0.0
 
-        start_time = time.perf_counter()
-        self._is_processing = True
+        with self._lock:
+            start_time = time.perf_counter()
+            self._is_processing = True
 
-        try:
-            # 3. Analyze
-            detections = self.detector.analyze(
-                image,
-                confidence_threshold=threshold,
-                frame_id=frame_id,
-                timestamp=timestamp
-            )
+            try:
+                # 3. Analyze
+                detections = self.detector.analyze(
+                    image,
+                    confidence_threshold=threshold,
+                    frame_id=frame_id,
+                    timestamp=timestamp
+                )
 
-            # 4. Annotate
-            annotated_image = self.detector.annotate_image(image, detections)
-            self.last_error = None
+                # 4. Annotate
+                annotated_image = self.detector.annotate_image(image, detections)
+                self.last_error = None
 
-        except Exception as e:
-            self.last_error = str(e)
-            logger.error(f"Excepción no controlada durante el procesamiento visual: {e}")
-            detections = []
-            annotated_image = None
-        finally:
-            self._is_processing = False
-            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            except Exception as e:
+                self.last_error = str(e)
+                logger.error(f"Excepción no controlada durante el procesamiento visual: {e}")
+                detections = []
+                annotated_image = None
+            finally:
+                self._is_processing = False
+                elapsed_ms = (time.perf_counter() - start_time) * 1000.0
 
-        return detections, annotated_image, elapsed_ms
+            return detections, annotated_image, elapsed_ms
 
     def get_status(self) -> Dict[str, Any]:
         """

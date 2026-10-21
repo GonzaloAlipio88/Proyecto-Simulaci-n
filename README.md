@@ -176,10 +176,30 @@ backend\.venv\Scripts\python simulation\mock_webots_runner.py 15
 
 ### 5. Ejecutar las Pruebas Automatizadas
 
-Para validar que todos los componentes, base de datos SQLite, endpoints REST y WebSockets operen al 100%:
+Para validar que todos los componentes, motor de visión, clasificación vial, ingesta de imágenes externas y regresión operen al 100%:
 ```powershell
-backend\.venv\Scripts\pytest backend\tests\test_backend.py -v
+# Ejecutar la suite completa de pruebas (Semanas 1 a 7)
+py -m pytest backend/tests/ -v
+
+# Ejecutar específicamente las pruebas de carga y análisis de imágenes (Semana 7)
+py -m pytest backend/tests/test_semana_7_image_upload.py -v
 ```
+
+---
+
+## 📷 Semana 7: Carga y Análisis de Imágenes Externas (JPG/PNG)
+
+El sistema permite cargar fotografías externas desde el computador del usuario para analizarlas con el mismo motor de visión artificial y clasificación vial, sin necesidad de tener Webots abierto.
+
+* **Endpoints**:
+  * `POST /api/v1/imagenes/analyze` (y alias `POST /api/v1/images/analyze`)
+  * Parámetros: `file` (multipart/form-data, JPG/PNG, máx. 10 MB), `confidence_threshold` (0.0 a 1.0), `save_to_storage` (booleano).
+* **Seguridad & Integridad**:
+  * Decodificación real OpenCV contra archivos corruptos o extensiones falseadas.
+  * Límites estrictos de memoria por lectura en bloques (64 KB).
+  * Reporte honesto de ubicación: `simulation_coords=null`, `gps_coords=null`, `has_location=false`.
+* **Dashboard React**:
+  * Sección dedicada con Drag & Drop, vista previa, barra de confianza y visualizador comparativo (original vs anotado).
 
 ---
 

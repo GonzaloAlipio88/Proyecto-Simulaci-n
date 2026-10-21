@@ -5,6 +5,7 @@ import { LiveCameraFeed } from './components/LiveCameraFeed';
 import { TelemetryPanel } from './components/TelemetryPanel';
 import { DetectionViewer } from './components/DetectionViewer';
 import { IncidentLog } from './components/IncidentLog';
+import { ImageAnalysisSection } from './components/ImageAnalysisSection';
 import { useWebSocket } from './hooks/useWebSocket';
 import { api } from './services/api';
 import type { DetectionStatus } from './types';
@@ -66,6 +67,9 @@ export function App() {
           <TelemetryPanel telemetry={latestTelemetry} />
         </section>
       </main>
+
+      {/* Semana 7: Carga y Análisis de Imágenes Externas JPG/PNG */}
+      <ImageAnalysisSection detectionStatus={detectionStatus} />
 
       {/* Bottom Section: Historical & Live Incidents Log (SQLite) */}
       <section className="dashboard-incidents-section">
