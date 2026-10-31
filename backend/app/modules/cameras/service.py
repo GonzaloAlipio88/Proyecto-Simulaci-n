@@ -125,7 +125,8 @@ class CameraService:
                     coordenadas_tipo="simulacion_webots",
                     confidence=road_det.confidence,
                     imagen_id=img_record.id,
-                    estado=road_det.review_status
+                    estado=road_det.review_status,
+                    timestamp=captured_time
                 )
                 try:
                     inc_record = await incidente_service.create_incidente(db, inc_create)

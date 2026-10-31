@@ -87,10 +87,23 @@ export interface Incidente {
   pos_z?: number | null;
   coordenadas_tipo?: string;
   confidence: number;
-  imagen_id?: number;
+  imagen_id?: number | null;
+  imagen_url?: string | null;
   estado: 'reportado' | 'en_revision' | 'atendido' | 'descartado';
   timestamp: string;
 }
+
+export interface IncidenteStats {
+  total_incidentes: number;
+  por_tipo: Record<string, number>;
+  por_severidad: Record<string, number>;
+  por_estado: Record<string, number>;
+  con_imagen: number;
+  sin_imagen: number;
+  confianza_promedio: number;
+  ultimo_incidente_timestamp?: string | null;
+}
+
 
 export interface CameraStatus {
   is_active: boolean;
@@ -121,5 +134,53 @@ export interface DetectionStatus {
   last_inference_error?: string | null;
   classes?: string[];
   total_classes?: number;
+}
+
+export interface ImageDimensions {
+  width: number;
+  height: number;
+  channels: number;
+}
+
+export interface ModelInfo {
+  name: string;
+  backend: string;
+  is_available: boolean;
+  is_fallback: boolean;
+  is_diagnostic: boolean;
+  model_mode?: string;
+  device: string;
+  warnings: string[];
+}
+
+export interface ImageAnalysisResponse {
+  analysis_id: string;
+  original_filename: string;
+  stored_filename?: string | null;
+  dimensions: ImageDimensions;
+  format: string;
+  size_bytes: number;
+  timestamp: string;
+  status: 'success' | 'no_detections' | 'error';
+  detections: DetectionItem[];
+  total_detected: number;
+  total_valid: number;
+  total_rejected: number;
+  has_location: boolean;
+  simulation_coords?: {
+    pos_x: number;
+    pos_y: number;
+    pos_z: number;
+  } | null;
+  gps_coords?: Record<string, any> | null;
+  location_notice: string;
+  inference_time_ms: number;
+  classification_time_ms: number;
+  processing_time_ms: number;
+  model_info: ModelInfo;
+  image_id?: number | null;
+  original_image_url?: string | null;
+  annotated_image_url?: string | null;
+  annotated_image_base64?: string | null;
 }
 

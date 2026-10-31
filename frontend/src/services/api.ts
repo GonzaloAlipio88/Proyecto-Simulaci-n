@@ -1,4 +1,4 @@
-import type { Drone, TelemetryData, Incidente, CameraStatus, DetectionStatus } from '../types';
+import type { Drone, TelemetryData, Incidente, CameraStatus, DetectionStatus, ImageAnalysisResponse } from '../types';
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000') + '/api/v1';
 const HEALTH_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
@@ -69,15 +69,37 @@ export const api = {
   },
 
   // Incidentes
-  getIncidentes: async (filters?: { tipo?: string; severidad?: string; estado?: string }): Promise<Incidente[]> => {
+  getIncidentes: async (filters?: {
+    tipo?: string;
+    severidad?: string;
+    estado?: string;
+    drone_id?: string;
+    search?: string;
+    has_image?: boolean;
+    limit?: number;
+  }): Promise<Incidente[]> => {
     const query = new URLSearchParams();
     if (filters?.tipo) query.append('tipo', filters.tipo);
     if (filters?.severidad) query.append('severidad', filters.severidad);
     if (filters?.estado) query.append('estado', filters.estado);
+    if (filters?.drone_id) query.append('drone_id', filters.drone_id);
+    if (filters?.search) query.append('search', filters.search);
+    if (filters?.has_image !== undefined) query.append('has_image', filters.has_image.toString());
+    if (filters?.limit) query.append('limit', filters.limit.toString());
 
     const res = await fetch(`${API_BASE}/incidentes?${query.toString()}`);
     if (!res.ok) return [];
     return res.json();
+  },
+
+  getIncidentStats: async (): Promise<any> => {
+    try {
+      const res = await fetch(`${API_BASE}/incidentes/stats`);
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
   },
 
   updateIncidente: async (id: number, update: { estado?: string; severidad?: string; descripcion?: string }): Promise<Incidente> => {
@@ -89,6 +111,15 @@ export const api = {
     if (!res.ok) throw new Error('Error actualizando incidente');
     return res.json();
   },
+
+  deleteIncidente: async (id: number): Promise<{ success: boolean; message: string; id: number }> => {
+    const res = await fetch(`${API_BASE}/incidentes/${id}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error('Error eliminando incidente');
+    return res.json();
+  },
+
 
   // Detección / Visión IA Status
   getDetectionStatus: async (): Promise<DetectionStatus | null> => {
@@ -119,6 +150,43 @@ export const api = {
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error('Error ejecutando clasificación de detecciones');
+    return res.json();
+  },
+
+  // Semana 7: Carga y análisis de imágenes JPG/PNG externas
+  analyzeImage: async (
+    file: File,
+    confidenceThreshold?: number,
+    saveToStorage = true
+  ): Promise<ImageAnalysisResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const params = new URLSearchParams();
+    if (confidenceThreshold !== undefined) {
+      params.append('confidence_threshold', confidenceThreshold.toString());
+    }
+    params.append('save_to_storage', saveToStorage.toString());
+
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`${API_BASE}/imagenes/analyze${queryString}`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) {
+      let errorDetail = 'Error al analizar la imagen';
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.detail) {
+          errorDetail = errJson.detail;
+        }
+      } catch {
+        // Fallback
+      }
+      throw new Error(errorDetail);
+    }
+
     return res.json();
   }
 };

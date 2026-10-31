@@ -17,6 +17,7 @@ class Incidente(Base):
     pos_x = Column(Float, nullable=True)
     pos_y = Column(Float, nullable=True)
     pos_z = Column(Float, nullable=True)
+    coordenadas_tipo = Column(String(50), default="simulacion_webots", nullable=True)
     
     # Detection metrics
     confidence = Column(Float, default=0.0)
@@ -27,3 +28,14 @@ class Incidente(Base):
     # Status lifecycle
     estado = Column(String(30), default="reportado") # reportado, en_revision, atendido, descartado
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+    @property
+    def imagen_url(self) -> str | None:
+        """Returns direct API route to fetch linked image, if available."""
+        if self.imagen_id is not None:
+            return f"/api/v1/imagenes/{self.imagen_id}"
+        return None
+
+    def __repr__(self) -> str:
+        return f"<Incidente id={self.id} drone={self.drone_id} tipo={self.tipo} severidad={self.severidad} estado={self.estado}>"
+
