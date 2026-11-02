@@ -112,22 +112,30 @@ class CameraService:
 
         # 5. Generación de Incidentes calificados y no duplicados en SQLite
         incidents_created = []
+        valid_incident_states = {"reportado", "en_revision", "atendido", "descartado"}
         for road_det in classification_result.detections:
             if road_det.is_incident_candidate and not road_det.is_duplicate and road_det.validation_passed:
-                inc_create = IncidenteCreate(
-                    drone_id=drone_id,
-                    tipo=road_det.normalized_category,
-                    severidad=road_det.severity,
-                    descripcion=road_det.description or road_det.justification or f"Anomalía vial detectada: {road_det.normalized_category}",
-                    pos_x=frame_data.pos_x, # None si la ubicación es ausente
-                    pos_y=frame_data.pos_y,
-                    pos_z=frame_data.pos_z,
-                    coordenadas_tipo="simulacion_webots",
-                    confidence=road_det.confidence,
-                    imagen_id=img_record.id,
-                    estado=road_det.review_status
-                )
+
                 try:
+                    mapped_estado = (
+                        "en_revision"
+                        if road_det.review_status == "pendiente_revision"
+                        else (road_det.review_status if road_det.review_status in valid_incident_states else "reportado")
+                    )
+                    inc_create = IncidenteCreate(
+                        drone_id=drone_id,
+                        tipo=road_det.normalized_category,
+                        severidad=road_det.severity,
+                        descripcion=road_det.description or road_det.justification or f"Anomalía vial detectada: {road_det.normalized_category}",
+                        pos_x=frame_data.pos_x, # None si la ubicación es ausente
+                        pos_y=frame_data.pos_y,
+                        pos_z=frame_data.pos_z,
+                        coordenadas_tipo="simulacion_webots",
+                        confidence=road_det.confidence,
+                        imagen_id=img_record.id,
+                        estado=mapped_estado,
+                        timestamp=captured_time
+                    )
                     inc_record = await incidente_service.create_incidente(db, inc_create)
                     road_det.incident_id = inc_record.id
                     incidents_created.append(inc_record.id)
@@ -209,4 +217,3 @@ class CameraService:
         )
 
 camera_service = CameraService()
-
