@@ -1,37 +1,47 @@
+import logging
+from typing import List, Optional, Dict, Any
+from datetime import datetime
 import cv2
 import numpy as np
-import logging
-from typing import List
-from backend.app.modules.deteccion.base import BaseDetector
+
+from backend.app.modules.deteccion.base import VisionModel
+from backend.app.modules.deteccion.image_processor import ImageProcessor
 from backend.app.schemas.deteccion import DetectionItem, BoundingBox
 
 logger = logging.getLogger("heuristic_detector")
 
-class HeuristicDetector(BaseDetector):
+class HeuristicDetector(VisionModel):
     """
-    Initial functional vision detector using OpenCV color/contour filtering
-    and heuristic spatial inspection to identify:
-    1. Postes de luz (vertical linear structures)
+    OpenCV-based heuristic vision detector.
+    Uses color-space transformations (HSV), edge detection (Canny),
+    and spatial ROI analysis to detect:
+    1. Postes de luz (vertical linear high-aspect-ratio structures)
     2. Vegetación invasiva (excessive green saturation on road masks)
-    3. Obstrucciones de vía (high contrast unexpected objects on tracks)
+    3. Obstrucciones de vía (unexpected high-contrast objects on tracks)
     """
 
     def __init__(self):
         self.is_loaded = False
-        self.class_colors = {
-            "poste_luz": (255, 180, 0),         # Blue/Cyan in BGR
-            "vegetacion_invasiva": (60, 220, 60), # Green in BGR
-            "obstruccion_via": (40, 40, 230)      # Red in BGR
-        }
         self.load_model()
 
     def load_model(self) -> bool:
         self.is_loaded = True
-        logger.info("Heuristic/Computer Vision Detector loaded successfully.")
+        logger.info("Heuristic OpenCV Vision Detector loaded successfully.")
         return True
 
-    def detect(self, image: np.ndarray, confidence_threshold: float = 0.5) -> List[DetectionItem]:
-        if image is None or image.size == 0:
+    def is_available(self) -> bool:
+        return self.is_loaded
+
+    def analyze(
+        self,
+        image: np.ndarray,
+        confidence_threshold: float = 0.5,
+        frame_id: Optional[str] = None,
+        timestamp: Optional[datetime] = None
+    ) -> List[DetectionItem]:
+        valid, err = ImageProcessor.validate_image_array(image)
+        if not valid:
+            logger.warning(f"HeuristicDetector received invalid image: {err}")
             return []
 
         h, w = image.shape[:2]
@@ -45,7 +55,7 @@ class HeuristicDetector(BaseDetector):
             upper_green = np.array([85, 255, 255])
             green_mask = cv2.inRange(hsv, lower_green, upper_green)
             green_contours, _ = cv2.findContours(green_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
+
             for cnt in green_contours:
                 area = cv2.contourArea(cnt)
                 if area > (h * w * 0.015): # Minimum threshold to qualify as invasive patch
@@ -54,6 +64,7 @@ class HeuristicDetector(BaseDetector):
                     if conf >= confidence_threshold:
                         detections.append(DetectionItem(
                             label="vegetacion_invasiva",
+                            class_name="vegetacion_invasiva",
                             confidence=conf,
                             bbox=BoundingBox(
                                 x_min=float(x),
@@ -62,7 +73,9 @@ class HeuristicDetector(BaseDetector):
                                 y_max=float(y + ch)
                             ),
                             severity="alta" if area > (h * w * 0.05) else "media",
-                            description=f"Crecimiento vegetal sobre franja de vía ({int(area)} px)"
+                            description=f"Crecimiento vegetal sobre franja de vía ({int(area)} px)",
+                            frame_id=frame_id,
+                            timestamp=timestamp
                         ))
 
             # 2. Detection of light poles / vertical high-aspect ratio features
@@ -79,6 +92,7 @@ class HeuristicDetector(BaseDetector):
                     if conf >= confidence_threshold:
                         detections.append(DetectionItem(
                             label="poste_luz",
+                            class_name="poste_luz",
                             confidence=conf,
                             bbox=BoundingBox(
                                 x_min=float(x),
@@ -87,15 +101,16 @@ class HeuristicDetector(BaseDetector):
                                 y_max=float(y + ch)
                             ),
                             severity="baja",
-                            description=f"Poste de luz / columna detectado (relación {aspect_ratio:.1f})"
+                            description=f"Poste de luz / columna detectado (relación {aspect_ratio:.1f})",
+                            frame_id=frame_id,
+                            timestamp=timestamp
                         ))
 
             # 3. Detection of track obstruction / dark solid obstacles
-            # Dark or high-contrast central objects
             center_y_start, center_y_end = int(h * 0.3), int(h * 0.8)
             center_x_start, center_x_end = int(w * 0.2), int(w * 0.8)
             road_roi_gray = gray[center_y_start:center_y_end, center_x_start:center_x_end]
-            
+
             if road_roi_gray.size > 0:
                 _, thresh = cv2.threshold(road_roi_gray, 40, 255, cv2.THRESH_BINARY_INV)
                 obs_contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -109,6 +124,7 @@ class HeuristicDetector(BaseDetector):
                         if conf >= confidence_threshold:
                             detections.append(DetectionItem(
                                 label="obstruccion_via",
+                                class_name="obstruccion_via",
                                 confidence=conf,
                                 bbox=BoundingBox(
                                     x_min=float(real_x),
@@ -117,7 +133,9 @@ class HeuristicDetector(BaseDetector):
                                     y_max=float(real_y + ch)
                                 ),
                                 severity="alta",
-                                description=f"Objeto extraño bloqueando vía en zona de tránsito"
+                                description="Objeto extraño bloqueando vía en zona de tránsito",
+                                frame_id=frame_id,
+                                timestamp=timestamp
                             ))
 
         except Exception as e:
@@ -126,22 +144,60 @@ class HeuristicDetector(BaseDetector):
         return detections
 
     def annotate_image(self, image: np.ndarray, detections: List[DetectionItem]) -> np.ndarray:
-        if image is None:
-            return None
-        annotated = image.copy()
-        
-        for det in detections:
-            color = self.class_colors.get(det.label, (0, 255, 255))
-            x1, y1 = int(det.bbox.x_min), int(det.bbox.y_min)
-            x2, y2 = int(det.bbox.x_max), int(det.bbox.y_max)
-            
-            # Draw bounding box
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-            
-            # Draw label banner
-            text = f"{det.label}: {int(det.confidence * 100)}%"
-            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            cv2.rectangle(annotated, (x1, max(0, y1 - th - 8)), (x1 + tw + 6, y1), color, -1)
-            cv2.putText(annotated, text, (x1 + 3, max(12, y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+        return ImageProcessor.annotate_detections(image, detections)
 
-        return annotated
+    def get_model_info(self) -> Dict[str, Any]:
+        return {
+            "model_name": "opencv_heuristic",
+            "backend": "opencv",
+            "device": "cpu",
+            "is_loaded": self.is_loaded,
+            "classes": ["poste_luz", "vegetacion_invasiva", "obstruccion_via"],
+            "description": "Detector heurístico basado en filtros HSV, Canny y morfología de OpenCV"
+        }
+
+
+class DiagnosticDetector(VisionModel):
+    """
+    Explicit Diagnostic Detector.
+    Used when a requested deep-learning model (such as YOLO) is not available or weights are missing.
+    Strictly follows rule: DOES NOT invent detections. Returns empty results with diagnostic info.
+    """
+
+    def __init__(self, reason: str = "Modelo en modo diagnóstico explícito (pesos o biblioteca no disponibles)"):
+        self.reason = reason
+        self.is_loaded = True
+
+    def load_model(self) -> bool:
+        self.is_loaded = True
+        return True
+
+    def is_available(self) -> bool:
+        return False
+
+    def analyze(
+        self,
+        image: np.ndarray,
+        confidence_threshold: float = 0.5,
+        frame_id: Optional[str] = None,
+        timestamp: Optional[datetime] = None
+    ) -> List[DetectionItem]:
+        valid, err = ImageProcessor.validate_image_array(image)
+        if not valid:
+            logger.warning(f"DiagnosticDetector: imagen inválida ({err})")
+        # Explicit diagnostic mode does not generate false detections
+        return []
+
+    def annotate_image(self, image: np.ndarray, detections: List[DetectionItem]) -> np.ndarray:
+        return ImageProcessor.annotate_detections(image, detections)
+
+    def get_model_info(self) -> Dict[str, Any]:
+        return {
+            "model_name": "diagnostic_mode",
+            "backend": "diagnostic",
+            "device": "cpu",
+            "is_loaded": False,
+            "is_diagnostic": True,
+            "reason": self.reason,
+            "classes": []
+        }
