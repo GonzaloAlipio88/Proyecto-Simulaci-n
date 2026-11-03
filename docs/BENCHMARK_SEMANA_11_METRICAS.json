@@ -1,0 +1,98 @@
+{
+  "rest_endpoints": {
+    "GET /health": {
+      "mean_ms": 0.21,
+      "p50_ms": 0.19,
+      "p95_ms": 0.36,
+      "min_ms": 0.18,
+      "max_ms": 0.37
+    },
+    "GET /api/v1/drones": {
+      "mean_ms": 0.73,
+      "p50_ms": 0.69,
+      "p95_ms": 1.0,
+      "min_ms": 0.57,
+      "max_ms": 1.35
+    },
+    "GET /api/v1/deteccion/status": {
+      "mean_ms": 0.43,
+      "p50_ms": 0.42,
+      "p95_ms": 0.54,
+      "min_ms": 0.4,
+      "max_ms": 0.59
+    },
+    "GET /api/v1/deteccion/threshold": {
+      "mean_ms": 0.22,
+      "p50_ms": 0.21,
+      "p95_ms": 0.26,
+      "min_ms": 0.2,
+      "max_ms": 0.57
+    },
+    "GET /api/v1/incidentes/stats": {
+      "mean_ms": 2.92,
+      "p50_ms": 2.66,
+      "p95_ms": 3.48,
+      "min_ms": 2.41,
+      "max_ms": 8.34
+    },
+    "PUT /api/v1/deteccion/threshold": {
+      "mean_ms": 0.26,
+      "p50_ms": 0.23,
+      "p95_ms": 0.37,
+      "min_ms": 0.21,
+      "max_ms": 0.7
+    }
+  },
+  "database_performance": {
+    "incident_create_ms": {
+      "mean_ms": 4.79,
+      "p50_ms": 4.65,
+      "p95_ms": 6.47
+    },
+    "telemetry_ingest_ms": {
+      "mean_ms": 5.66,
+      "p50_ms": 5.2,
+      "p95_ms": 7.34
+    }
+  },
+  "vision_performance": {
+    "image_resolution": "640x480",
+    "opencv_heuristic": {
+      "mean_ms": 2.59,
+      "p50_ms": 1.86,
+      "p95_ms": 4.5,
+      "fps": 386.0,
+      "detections": 1
+    },
+    "yolo_cpu": {
+      "mean_ms": 30.61,
+      "p50_ms": 29.83,
+      "p95_ms": 41.3,
+      "fps": 32.7,
+      "detections": 0,
+      "mode": "pretrained_generic"
+    },
+    "full_camera_ingest_pipeline": {
+      "mean_ms": 39.55,
+      "p50_ms": 41.22,
+      "p95_ms": 46.24,
+      "fps": 25.3
+    }
+  },
+  "simulation_endurance": {
+    "total_cycles": 1000,
+    "elapsed_seconds": 0.0005,
+    "avg_cycle_ms": 0.0005,
+    "frequency_hz": 1830496.1,
+    "states_visited": [
+      "HOVER",
+      "HOVER_HOME",
+      "NAVIGATING",
+      "READY_ON_GROUND",
+      "RETURNING",
+      "TAKEOFF"
+    ],
+    "errors_count": 0,
+    "status": "PASS"
+  }
+}

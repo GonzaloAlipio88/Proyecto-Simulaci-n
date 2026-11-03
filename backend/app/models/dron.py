@@ -1,6 +1,10 @@
+import sys
 from sqlalchemy import Column, Integer, String, Float, DateTime
 from datetime import datetime
 from backend.app.core.database import Base
+
+sys.modules["backend.app.models.dron"] = sys.modules[__name__]
+sys.modules["app.models.dron"] = sys.modules[__name__]
 
 class Drone(Base):
     __tablename__ = "drones"
@@ -18,4 +22,3 @@ class Drone(Base):
     current_waypoint = Column(Integer, default=0)
     current_mission = Column(String(100), default="Inspeccion_Vias_Demo")
     last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-

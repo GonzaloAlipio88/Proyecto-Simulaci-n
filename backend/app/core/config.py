@@ -1,7 +1,12 @@
 import os
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+
+_CANONICAL_CFG = sys.modules.get("backend.app.core.config") or sys.modules.get("app.core.config") or sys.modules[__name__]
+sys.modules["backend.app.core.config"] = _CANONICAL_CFG
+sys.modules["app.core.config"] = _CANONICAL_CFG
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -32,7 +37,7 @@ class Settings(BaseSettings):
     ]
     
     # Computer Vision / YOLO settings
-    DETECTION_MODEL_TYPE: str = "yolo" # "yolo", "heuristic", or "diagnostic"
+    DETECTION_MODEL_TYPE: str = "yolo" # "yolo", "hybrid", "heuristic", or "diagnostic"
     YOLO_WEIGHTS_PATH: str = str(
         (BASE_DIR / "storage" / "weights" / "best.pt")
         if (BASE_DIR / "storage" / "weights" / "best.pt").exists()
@@ -42,6 +47,7 @@ class Settings(BaseSettings):
     YOLO_DEVICE: str = "cpu" # "cpu", "cuda", or "auto"
     DETECTION_CONFIDENCE_THRESHOLD: float = 0.50
     DETECTION_FALLBACK_TO_HEURISTIC: bool = True # If YOLO weights/lib missing, fallback to OpenCV heuristic
+    HYBRID_COMPLEMENT_FOR_WEBOTS: bool = True # Complement generic COCO YOLO with OpenCV heuristic on Webots 3D frames
     VISION_SKIP_FRAMES_ON_BUSY: bool = True # Drop frame if vision engine is currently busy
     VISION_ANALYSIS_INTERVAL_FRAMES: int = 1 # Analyze every N frames (1 = all frames)
 

@@ -1,8 +1,13 @@
+import sys
 from typing import List, Dict, Any
 from fastapi import WebSocket
 import json
 import logging
 import asyncio
+
+_self_module = sys.modules[__name__]
+sys.modules["app.core.websocket_manager"] = _self_module
+sys.modules["backend.app.core.websocket_manager"] = _self_module
 
 logger = logging.getLogger("websocket_manager")
 

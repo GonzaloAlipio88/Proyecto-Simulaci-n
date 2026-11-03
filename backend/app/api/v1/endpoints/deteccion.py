@@ -16,7 +16,25 @@ from backend.app.modules.clasificacion.rules import (
     DEFAULT_CATEGORY_THRESHOLDS
 )
 
+from pydantic import BaseModel, Field
+
 router = APIRouter()
+
+class ThresholdUpdateRequest(BaseModel):
+    threshold: float = Field(
+        ...,
+        ge=0.15,
+        le=0.50,
+        description="Nuevo umbral de confianza en el intervalo [0.15, 0.50]"
+    )
+
+class ThresholdResponse(BaseModel):
+    confidence_threshold: float
+    min_threshold: float = 0.15
+    max_threshold: float = 0.50
+    default_threshold: float = 0.25
+    updated_at: datetime
+    message: str
 
 @router.post("/detect", response_model=DetectionResult)
 def run_standalone_detection(req: DetectionRequest):
@@ -160,4 +178,43 @@ def get_detector_status():
         "total_classes": engine_status.get("total_classes"),
         "skip_on_busy": engine_status.get("skip_on_busy")
     }
+
+
+@router.get("/threshold", response_model=ThresholdResponse)
+def get_detection_confidence_threshold():
+    """
+    Semana 11: Consulta el umbral de confianza dinámico actual del motor de visión (YOLO/Heurístico).
+    """
+    val = detection_service.get_confidence_threshold()
+    return ThresholdResponse(
+        confidence_threshold=val,
+        min_threshold=0.15,
+        max_threshold=0.50,
+        default_threshold=0.25,
+        updated_at=datetime.now(timezone.utc),
+        message=f"Umbral de confianza activo: {val:.3f}"
+    )
+
+
+@router.put("/threshold", response_model=ThresholdResponse)
+@router.post("/threshold", response_model=ThresholdResponse)
+def update_detection_confidence_threshold(req: ThresholdUpdateRequest):
+    """
+    Semana 11: Modifica dinámicamente el umbral de confianza de detección entre 0.15 y 0.50
+    sin reiniciar el backend ni la simulación.
+    Aplica validación de intervalo y evita condiciones de carrera durante inferencias en curso.
+    """
+    try:
+        updated_val = detection_service.set_confidence_threshold(req.threshold)
+        return ThresholdResponse(
+            confidence_threshold=updated_val,
+            min_threshold=0.15,
+            max_threshold=0.50,
+            default_threshold=0.25,
+            updated_at=datetime.now(timezone.utc),
+            message=f"Umbral de confianza actualizado exitosamente a {updated_val:.3f}"
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
 

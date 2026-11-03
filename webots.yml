@@ -1,0 +1,6 @@
+# Webots Cloud Configuration File
+# Documentation: https://webots.cloud/doc
+publish: true
+type: demo
+world: simulation/worlds/inspection_zone.wbt
+

@@ -1,6 +1,7 @@
 import { useState, useMemo, type FC } from 'react';
-import { Target, Zap, CheckCircle2, Scan, WifiOff, AlertTriangle, Info } from 'lucide-react';
+import { Target, Zap, CheckCircle2, Scan, WifiOff, AlertTriangle, Info, Sliders, Check, RefreshCw } from 'lucide-react';
 import type { DetectionItem, DetectionStatus, RoadCategoriesConfig } from '../types';
+import { api } from '../services/api';
 
 interface DetectionViewerProps {
   detections: DetectionItem[];
@@ -9,6 +10,8 @@ interface DetectionViewerProps {
   hasActiveFrame?: boolean;
   sourceLabel?: string;
   isApiOnline?: boolean;
+  onThresholdChange?: (newThreshold: number) => void;
+  currentThreshold?: number;
 }
 
 export const DetectionViewer: FC<DetectionViewerProps> = ({
@@ -17,9 +20,42 @@ export const DetectionViewer: FC<DetectionViewerProps> = ({
   categoriesConfig = null,
   hasActiveFrame = false,
   sourceLabel = 'Stream Webots',
-  isApiOnline = true
+  isApiOnline = true,
+  onThresholdChange,
+  currentThreshold
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const effectiveThreshold = currentThreshold ?? detectionStatus?.confidence_threshold ?? 0.25;
+  const [userVal, setUserVal] = useState<number | null>(null);
+  const sliderVal = userVal ?? effectiveThreshold;
+  const [isUpdatingThreshold, setIsUpdatingThreshold] = useState<boolean>(false);
+  const [thresholdUpdateMsg, setThresholdUpdateMsg] = useState<string | null>(null);
+
+  const handleCommitThreshold = async (val: number) => {
+    const clamped = Math.min(0.50, Math.max(0.15, Math.round(val * 100) / 100));
+    setUserVal(clamped);
+    setIsUpdatingThreshold(true);
+    setThresholdUpdateMsg(null);
+    try {
+      const res = await api.updateDetectionThreshold(clamped);
+      setUserVal(null);
+      setThresholdUpdateMsg(`Guardado (${(res.confidence_threshold * 100).toFixed(0)}%)`);
+      if (onThresholdChange) {
+        onThresholdChange(res.confidence_threshold);
+      }
+      setTimeout(() => setThresholdUpdateMsg(null), 3500);
+    } catch (err) {
+      console.error('Error actualizando umbral de confianza:', err);
+      setThresholdUpdateMsg('Error al guardar');
+      setTimeout(() => setThresholdUpdateMsg(null), 3000);
+    } finally {
+      setIsUpdatingThreshold(false);
+    }
+  };
+
+  const handlePresetClick = (presetVal: number) => {
+    handleCommitThreshold(presetVal);
+  };
 
   const getEffectiveCategory = (det: DetectionItem) => {
     return det.normalized_category || det.label || 'otro';
@@ -125,6 +161,87 @@ export const DetectionViewer: FC<DetectionViewerProps> = ({
         <div className="detection-header-right">
           {hasActiveFrame && <span className="source-tag-mini">{sourceLabel}</span>}
           <span className="count-pill">{detections.length} detecciones</span>
+        </div>
+      </div>
+
+      {/* Dynamic Confidence Threshold Slider Bar (Semana 11) */}
+      <div className="detection-threshold-panel">
+        <div className="threshold-panel-header">
+          <div className="threshold-title-row">
+            <Sliders size={13} className="text-cyan" />
+            <span>Umbral de Confianza (YOLO & Heurística):</span>
+            <strong className="threshold-val-badge">
+              {(effectiveThreshold * 100).toFixed(0)}% ({effectiveThreshold.toFixed(2)})
+            </strong>
+            {isUpdatingThreshold && (
+              <span className="threshold-saving-pill">
+                <RefreshCw size={10} className="spin-icon" /> Guardando...
+              </span>
+            )}
+            {thresholdUpdateMsg && (
+              <span className="threshold-success-pill">
+                <Check size={10} /> {thresholdUpdateMsg}
+              </span>
+            )}
+          </div>
+          <div className="threshold-presets">
+            <button
+              type="button"
+              className={`preset-btn ${Math.abs(sliderVal - 0.20) < 0.005 ? 'preset-btn-active' : ''}`}
+              onClick={() => handlePresetClick(0.20)}
+              disabled={isUpdatingThreshold || !isApiOnline}
+              title="Sensible (0.20): Mayor detección de objetos lejanos, mayor riesgo de falsos positivos"
+            >
+              Sensible (0.20)
+            </button>
+            <button
+              type="button"
+              className={`preset-btn ${Math.abs(sliderVal - 0.25) < 0.005 ? 'preset-btn-active' : ''}`}
+              onClick={() => handlePresetClick(0.25)}
+              disabled={isUpdatingThreshold || !isApiOnline}
+              title="Equilibrado (0.25): Balance óptimo para corredor vial de Ciénaga"
+            >
+              Equilibrado (0.25)
+            </button>
+            <button
+              type="button"
+              className={`preset-btn ${Math.abs(sliderVal - 0.40) < 0.005 ? 'preset-btn-active' : ''}`}
+              onClick={() => handlePresetClick(0.40)}
+              disabled={isUpdatingThreshold || !isApiOnline}
+              title="Conservador (0.40): Máxima certeza, reduce detecciones débiles"
+            >
+              Conservador (0.40)
+            </button>
+          </div>
+        </div>
+
+        <div className="threshold-slider-row">
+          <span className="threshold-bound">0.15</span>
+          <input
+            type="range"
+            min="0.15"
+            max="0.50"
+            step="0.01"
+            value={sliderVal}
+            onChange={(e) => setUserVal(parseFloat(e.target.value))}
+            onMouseUp={() => handleCommitThreshold(sliderVal)}
+            onTouchEnd={() => handleCommitThreshold(sliderVal)}
+            disabled={isUpdatingThreshold || !isApiOnline}
+            className="threshold-range-input"
+            aria-label="Ajuste de umbral de confianza YOLO"
+          />
+          <span className="threshold-bound">0.50</span>
+        </div>
+
+        <div className="threshold-footnote">
+          <Info size={11} className="text-cyan flex-shrink-0" />
+          <span>
+            {sliderVal < 0.22
+              ? 'Umbral bajo (<0.22): Aumenta la exhaustividad pero puede incrementar falsos positivos por sombras o texturas complejas.'
+              : sliderVal > 0.35
+              ? 'Umbral alto (>0.35): Mayor precisión técnica; solo reporta anomalías con alta certidumbre visual.'
+              : 'Umbral estándar (0.22–0.35): Comportamiento balanceado entre sensibilidad y especificidad.'}
+          </span>
         </div>
       </div>
 

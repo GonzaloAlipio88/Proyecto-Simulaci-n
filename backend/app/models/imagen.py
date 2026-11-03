@@ -1,6 +1,10 @@
+import sys
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean
 from datetime import datetime
 from backend.app.core.database import Base
+
+sys.modules["backend.app.models.imagen"] = sys.modules[__name__]
+sys.modules["app.models.imagen"] = sys.modules[__name__]
 
 class ImageRecord(Base):
     __tablename__ = "imagenes"

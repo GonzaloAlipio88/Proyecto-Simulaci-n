@@ -435,3 +435,54 @@ def test_api_camera_frame_integration(client, sample_object_scene_base64):
     assert body["width"] == 640
     assert body["height"] == 480
 
+
+def test_semana_11_dynamic_confidence_threshold_get_and_set(client):
+    """
+    Semana 11: Valida el control dinámico del umbral de confianza de visión (0.15 - 0.50):
+    1. Consulta de umbral actual vía GET /api/v1/deteccion/threshold.
+    2. Modificación dinámica vía PUT /api/v1/deteccion/threshold sin reinicio.
+    3. Validación de sincronización en /api/v1/deteccion/status y en el singleton detection_service.
+    4. Rechazo de valores fuera del intervalo permitido [0.15, 0.50] con HTTP 422.
+    """
+    from backend.app.modules.deteccion.service import detection_service
+
+    # 1. Consulta inicial
+    get_res = client.get("/api/v1/deteccion/threshold")
+    assert get_res.status_code == 200
+    data = get_res.json()
+    assert "confidence_threshold" in data
+    assert data["min_threshold"] == 0.15
+    assert data["max_threshold"] == 0.50
+    initial_threshold = data["confidence_threshold"]
+
+    # 2. Modificación válida a 0.35
+    put_res = client.put("/api/v1/deteccion/threshold", json={"threshold": 0.35})
+    assert put_res.status_code == 200
+    put_data = put_res.json()
+    assert put_data["confidence_threshold"] == 0.35
+    assert detection_service.get_confidence_threshold() == 0.35
+
+    # 3. Verificación de sincronización en status
+    status_res = client.get("/api/v1/deteccion/status")
+    assert status_res.status_code == 200
+    assert status_res.json()["confidence_threshold"] == 0.35
+
+    # 4. Modificación vía POST alternativa
+    post_res = client.post("/api/v1/deteccion/threshold", json={"threshold": 0.20})
+    assert post_res.status_code == 200
+    assert post_res.json()["confidence_threshold"] == 0.20
+    assert detection_service.get_confidence_threshold() == 0.20
+
+    # 5. Rechazo estricto de valores inferiores a 0.15
+    low_res = client.put("/api/v1/deteccion/threshold", json={"threshold": 0.10})
+    assert low_res.status_code == 422
+
+    # 6. Rechazo estricto de valores superiores a 0.50
+    high_res = client.put("/api/v1/deteccion/threshold", json={"threshold": 0.65})
+    assert high_res.status_code == 422
+
+    # 7. Restaurar umbral inicial seguro
+    client.put("/api/v1/deteccion/threshold", json={"threshold": initial_threshold})
+    assert detection_service.get_confidence_threshold() == initial_threshold
+
+

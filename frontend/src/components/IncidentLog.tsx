@@ -4,10 +4,16 @@ import {
   Filter,
   CheckCircle,
   Clock,
+  Image as ImageIcon,
+  Trash2,
   RefreshCw,
-  AlertTriangle
+  Search,
+  AlertTriangle,
+  Database,
+  ExternalLink,
+  X
 } from 'lucide-react';
-import type { Incidente } from '../types';
+import type { Incidente, IncidenteStats } from '../types';
 import { api } from '../services/api';
 
 interface IncidentLogProps {
@@ -26,6 +32,7 @@ export const IncidentLog: FC<IncidentLogProps> = ({
   isApiOnline = true
 }) => {
   const [incidents, setIncidents] = useState<Incidente[]>([]);
+  const [stats, setStats] = useState<IncidenteStats | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -33,9 +40,23 @@ export const IncidentLog: FC<IncidentLogProps> = ({
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [onlyWithImage, setOnlyWithImage] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
 
-  const fetchIncidents = useCallback(async () => {
+  const [previewIncident, setPreviewIncident] = useState<Incidente | null>(null);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Debounce search text
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const loadIncidentsAndStats = useCallback(async () => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
@@ -43,15 +64,26 @@ export const IncidentLog: FC<IncidentLogProps> = ({
         tipo?: string;
         severidad?: string;
         estado?: string;
+        search?: string;
+        has_image?: boolean;
         limit?: number;
       } = { limit: 100 };
 
       if (typeFilter !== 'all') filters.tipo = typeFilter;
       if (severityFilter !== 'all') filters.severidad = severityFilter;
       if (statusFilter !== 'all') filters.estado = statusFilter;
+      if (debouncedSearch) filters.search = debouncedSearch;
+      if (onlyWithImage) filters.has_image = true;
 
-      const data = await api.getIncidentes(filters);
+      const [data, statsData] = await Promise.all([
+        api.getIncidentes(filters),
+        api.getIncidentStats()
+      ]);
+
       setIncidents(data);
+      if (statsData) {
+        setStats(statsData);
+      }
     } catch (err: unknown) {
       const msg =
         err instanceof Error
@@ -61,30 +93,46 @@ export const IncidentLog: FC<IncidentLogProps> = ({
     } finally {
       setIsLoading(false);
     }
-  }, [typeFilter, severityFilter, statusFilter]);
+  }, [typeFilter, severityFilter, statusFilter, debouncedSearch, onlyWithImage]);
 
   // Reload when filters change or when backend comes back online
   useEffect(() => {
     let active = true;
     const triggerLoad = async () => {
       if (!active) return;
-      await fetchIncidents();
+      await loadIncidentsAndStats();
     };
     triggerLoad();
     return () => {
       active = false;
     };
-  }, [fetchIncidents, isApiOnline]);
+  }, [loadIncidentsAndStats, isApiOnline]);
 
-  // Merge incoming live / newly created / updated incidents
+  // Refresh stats helper
+  const refreshStatsQuietly = useCallback(async () => {
+    const statsData = await api.getIncidentStats();
+    if (statsData) {
+      setStats(statsData);
+    }
+  }, []);
+
+  // Merge incoming live / newly created / updated / deleted incidents
   const mergedIncidents = useMemo(() => {
     let list = [...incidents];
 
     const upsertItem = (item: Incidente | null) => {
       if (!item) return;
+      // Check if it matches active filters
       if (typeFilter !== 'all' && item.tipo !== typeFilter) return;
       if (severityFilter !== 'all' && item.severidad !== severityFilter) return;
       if (statusFilter !== 'all' && item.estado !== statusFilter) return;
+      if (onlyWithImage && !item.imagen_id) return;
+      if (
+        debouncedSearch &&
+        !item.descripcion.toLowerCase().includes(debouncedSearch.toLowerCase())
+      ) {
+        return;
+      }
 
       const idx = list.findIndex((i) => i.id === item.id);
       if (idx >= 0) {
@@ -111,7 +159,25 @@ export const IncidentLog: FC<IncidentLogProps> = ({
     latestDeletedIncident,
     typeFilter,
     severityFilter,
-    statusFilter
+    statusFilter,
+    onlyWithImage,
+    debouncedSearch
+  ]);
+
+  // Refresh stats when WebSocket or manual incident events happen
+  useEffect(() => {
+    if (latestWsIncident || latestUpdatedIncident || latestDeletedIncident || newlyCreatedIncident) {
+      const timer = window.setTimeout(() => {
+        refreshStatsQuietly();
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    latestWsIncident,
+    latestUpdatedIncident,
+    latestDeletedIncident,
+    newlyCreatedIncident,
+    refreshStatsQuietly
   ]);
 
   const handleStatusChange = async (id: number, newStatus: string) => {
@@ -120,11 +186,33 @@ export const IncidentLog: FC<IncidentLogProps> = ({
     try {
       const updated = await api.updateIncidente(id, { estado: newStatus });
       setIncidents((prev) => prev.map((i) => (i.id === id ? updated : i)));
+      await refreshStatsQuietly();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : `No se pudo actualizar el incidente #${id}`;
       setActionError(msg);
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm(`¿Está seguro de eliminar permanentemente el incidente #${id} de SQLite?`)) {
+      return;
+    }
+    setDeletingId(id);
+    setActionError(null);
+    try {
+      await api.deleteIncidente(id);
+      setIncidents((prev) => prev.filter((i) => i.id !== id));
+      if (previewIncident?.id === id) {
+        setPreviewIncident(null);
+      }
+      await refreshStatsQuietly();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : `No se pudo eliminar el incidente #${id}`;
+      setActionError(msg);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -177,12 +265,34 @@ export const IncidentLog: FC<IncidentLogProps> = ({
           <div>
             <h2 className="card-title">REGISTRO DE INCIDENTES Y ANOMALÍAS EN VÍA (SQLITE)</h2>
             <p className="card-subtitle-text">
-              Persistencia real en SQLite (<code>/api/v1/incidentes</code>) con actualización en vivo por WebSocket
+              Persistencia real en SQLite (<code>/api/v1/incidentes</code>) con deduplicación espacio-temporal y actualización en vivo por WebSocket
             </p>
           </div>
         </div>
 
         <div className="filter-group" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Search box */}
+          <div className="incident-search-box">
+            <Search size={13} className="text-muted" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar en descripción..."
+              className="incident-search-input"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="btn-clear-search"
+                onClick={() => setSearchQuery('')}
+                title="Limpiar búsqueda"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center' }}>
             <Filter size={14} className="text-cyan inline mr-1" />
             <select
@@ -191,7 +301,7 @@ export const IncidentLog: FC<IncidentLogProps> = ({
               className="filter-select"
               title="Filtrar por categoría vial"
             >
-              <option value="all">Todas las anomalías</option>
+              <option value="all">Todos los tipos</option>
               <option value="poste_luz">Postes de Luz</option>
               <option value="vegetacion_invasiva">Vegetación Invasiva</option>
               <option value="obstruccion_via">Obstrucciones de Vía</option>
@@ -225,18 +335,71 @@ export const IncidentLog: FC<IncidentLogProps> = ({
             <option value="descartado">Descartado</option>
           </select>
 
+          <label className="filter-checkbox-label" title="Mostrar solo incidentes con imagen vinculada">
+            <input
+              type="checkbox"
+              checked={onlyWithImage}
+              onChange={(e) => setOnlyWithImage(e.target.checked)}
+            />
+            <span>Con foto</span>
+          </label>
+
           <button
             type="button"
             className="btn btn-outline btn-refresh-incidents"
-            onClick={fetchIncidents}
+            onClick={loadIncidentsAndStats}
             disabled={isLoading}
-            title="Recargar incidentes desde SQLite"
+            title="Recargar incidentes y estadísticas desde SQLite"
           >
             <RefreshCw size={14} className={isLoading ? 'spin-icon' : ''} />
             <span>Actualizar</span>
           </button>
         </div>
       </div>
+
+      {/* SQLite Aggregate Stats Bar (GET /api/v1/incidentes/stats) */}
+      {stats && (
+        <div className="incident-stats-bar">
+          <div className="stat-pill">
+            <Database size={13} className="text-cyan" />
+            <span>Total en SQLite:</span>
+            <strong>{stats.total_incidentes}</strong>
+          </div>
+          <div className="stat-pill stat-pill-pole">
+            <span className="legend-indicator legend-pole"></span>
+            <span>Postes:</span>
+            <strong>{stats.por_tipo.poste_luz ?? 0}</strong>
+          </div>
+          <div className="stat-pill stat-pill-veg">
+            <span className="legend-indicator legend-veg"></span>
+            <span>Vegetación:</span>
+            <strong>{stats.por_tipo.vegetacion_invasiva ?? 0}</strong>
+          </div>
+          <div className="stat-pill stat-pill-obs">
+            <span className="legend-indicator legend-obs"></span>
+            <span>Obstrucciones:</span>
+            <strong>{stats.por_tipo.obstruccion_via ?? 0}</strong>
+          </div>
+          <div className="stat-pill">
+            <span>Críticos / Altos:</span>
+            <strong className="text-red">
+              {(stats.por_severidad.critica ?? 0) + (stats.por_severidad.alta ?? 0)}
+            </strong>
+          </div>
+          <div className="stat-pill">
+            <span>Atendidos:</span>
+            <strong className="text-green">{stats.por_estado.atendido ?? 0}</strong>
+          </div>
+          <div className="stat-pill">
+            <span>Con Evidencia:</span>
+            <strong>{stats.con_imagen}</strong>
+          </div>
+          <div className="stat-pill">
+            <span>Confianza Promedio:</span>
+            <strong className="text-amber">{(stats.confianza_promedio * 100).toFixed(1)}%</strong>
+          </div>
+        </div>
+      )}
 
       {/* Action or Network Error Banner */}
       {(errorMessage || actionError) && (
@@ -251,11 +414,64 @@ export const IncidentLog: FC<IncidentLogProps> = ({
             style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}
             onClick={() => {
               setActionError(null);
-              fetchIncidents();
+              loadIncidentsAndStats();
             }}
           >
             <RefreshCw size={13} /> Reintentar
           </button>
+        </div>
+      )}
+
+      {/* Inline Image Preview Drawer if an incident image is selected */}
+      {previewIncident && previewIncident.imagen_id && (
+        <div className="incident-image-preview-panel">
+          <div className="preview-panel-header">
+            <div className="flex items-center gap-2">
+              <ImageIcon size={16} className="text-cyan" />
+              <strong>
+                Evidencia Fotográfica · Incidente #{previewIncident.id} (Imagen #
+                {previewIncident.imagen_id})
+              </strong>
+              <span className={`class-badge ${getTypeBadgeClass(previewIncident.tipo)}`}>
+                {getTypeName(previewIncident.tipo)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={api.getIncidentImageUrl(previewIncident.id, true)}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-toggle-view"
+                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              >
+                <ExternalLink size={12} /> Abrir original
+              </a>
+              <button
+                type="button"
+                className="btn-toggle-view"
+                onClick={() => setPreviewIncident(null)}
+              >
+                <X size={13} /> Cerrar vista
+              </button>
+            </div>
+          </div>
+          <div className="preview-panel-body">
+            <img
+              src={api.getIncidentImageUrl(previewIncident.id, true)}
+              alt={`Evidencia del incidente #${previewIncident.id}`}
+              className="preview-panel-img"
+            />
+            <div className="preview-panel-meta">
+              <p>
+                <strong>Descripción:</strong> {previewIncident.descripcion}
+              </p>
+              <p>
+                <strong>Dron / Fuente:</strong> {previewIncident.drone_id} ·{' '}
+                <strong>Confianza:</strong> {(previewIncident.confidence * 100).toFixed(1)}% ·{' '}
+                <strong>Fecha:</strong> {new Date(previewIncident.timestamp).toLocaleString()}
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -289,8 +505,10 @@ export const IncidentLog: FC<IncidentLogProps> = ({
                 <th>CATEGORÍA</th>
                 <th>SEVERIDAD</th>
                 <th>UBICACIÓN 3D</th>
-                <th>DESCRIPCIÓN</th>
+                <th>DESCRIPCIÓN & CONFIANZA</th>
+                <th>IMAGEN</th>
                 <th>ESTADO</th>
+                <th>ACCIONES</th>
               </tr>
             </thead>
             <tbody>
@@ -335,6 +553,38 @@ export const IncidentLog: FC<IncidentLogProps> = ({
                       </span>
                     )}
                   </td>
+                  <td className="inc-image-cell">
+                    {inc.imagen_id ? (
+                      <div className="inc-image-actions">
+                        <button
+                          type="button"
+                          className="incident-image-btn"
+                          onClick={() =>
+                            setPreviewIncident(
+                              previewIncident?.id === inc.id ? null : inc
+                            )
+                          }
+                          title="Previsualizar fotografía vinculada a este incidente"
+                        >
+                          <ImageIcon size={13} />
+                          <span>#{inc.imagen_id}</span>
+                        </button>
+                        <a
+                          href={api.getIncidentImageUrl(inc.id, true)}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Abrir o descargar imagen en pestaña nueva"
+                          className="incident-image-ext"
+                        >
+                          <ExternalLink size={12} />
+                        </a>
+                      </div>
+                    ) : (
+                      <span className="opacity-40 italic" style={{ fontSize: '0.78rem' }}>
+                        Sin foto
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <select
                       value={inc.estado}
@@ -347,6 +597,17 @@ export const IncidentLog: FC<IncidentLogProps> = ({
                       <option value="atendido">Atendido</option>
                       <option value="descartado">Descartado</option>
                     </select>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      disabled={deletingId === inc.id || !isApiOnline}
+                      onClick={() => handleDelete(inc.id)}
+                      title="Eliminar incidente de la base de datos SQLite"
+                      className="btn-delete-incident"
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </td>
                 </tr>
               ))}

@@ -3,12 +3,15 @@ import type {
   TelemetryData,
   Incidente,
   IncidenteCreatePayload,
+  IncidenteStats,
   CameraStatus,
   CameraFrameInfoResponse,
   DetectionStatus,
   RoadCategoriesConfig,
   ImageAnalysisResponse,
-  HealthResponse
+  HealthResponse,
+  MissionWaypoint,
+  ThresholdResponse
 } from '../types';
 
 const RAW_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000').replace(/\/+$/, '');
@@ -92,6 +95,16 @@ export const api = {
     }
   },
 
+  getMissionWaypoints: async (): Promise<MissionWaypoint[]> => {
+    try {
+      const res = await fetch(`${API_BASE}/drones/mission/waypoints`);
+      if (!res.ok) return [];
+      return res.json();
+    } catch {
+      return [];
+    }
+  },
+
   // Telemetría
   getLatestTelemetry: async (droneId: string): Promise<TelemetryData | null> => {
     try {
@@ -148,17 +161,29 @@ export const api = {
     }
   },
 
-  // Incidentes (SQLite)
+  // Incidentes (Semana 8 & 9 - SQLite)
   getIncidentes: async (filters?: {
     tipo?: string;
     severidad?: string;
     estado?: string;
+    drone_id?: string;
+    min_confidence?: number;
+    search?: string;
+    has_image?: boolean;
+    order_by?: 'asc' | 'desc';
+    skip?: number;
     limit?: number;
   }): Promise<Incidente[]> => {
     const query = new URLSearchParams();
     if (filters?.tipo) query.append('tipo', filters.tipo);
     if (filters?.severidad) query.append('severidad', filters.severidad);
     if (filters?.estado) query.append('estado', filters.estado);
+    if (filters?.drone_id) query.append('drone_id', filters.drone_id);
+    if (filters?.min_confidence !== undefined) query.append('min_confidence', filters.min_confidence.toString());
+    if (filters?.search) query.append('search', filters.search);
+    if (filters?.has_image !== undefined) query.append('has_image', filters.has_image.toString());
+    if (filters?.order_by) query.append('order_by', filters.order_by);
+    if (filters?.skip !== undefined) query.append('skip', filters.skip.toString());
     if (filters?.limit) query.append('limit', filters.limit.toString());
 
     const queryString = query.toString() ? `?${query.toString()}` : '';
@@ -173,13 +198,23 @@ export const api = {
     }
   },
 
+  getIncidentStats: async (): Promise<IncidenteStats | null> => {
+    try {
+      const res = await fetch(`${API_BASE}/incidentes/stats`);
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
+  },
+
   createIncidente: async (
     payload: IncidenteCreatePayload,
-    _allowDuplicate = false
+    allowDuplicate = false
   ): Promise<Incidente> => {
-    void _allowDuplicate;
     try {
-      const res = await fetch(`${API_BASE}/incidentes`, {
+      const query = allowDuplicate ? '?allow_duplicate=true' : '';
+      const res = await fetch(`${API_BASE}/incidentes${query}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -212,6 +247,24 @@ export const api = {
     }
   },
 
+  deleteIncidente: async (id: number): Promise<{ success: boolean; message: string; id: number }> => {
+    try {
+      const res = await fetch(`${API_BASE}/incidentes/${id}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) {
+        throw new Error(await extractErrorDetail(res, `Error eliminando el incidente #${id}`));
+      }
+      return res.json();
+    } catch (err) {
+      throw normalizeNetworkError(err, `Error eliminando el incidente #${id}`);
+    }
+  },
+
+  getIncidentImageUrl: (incidenteId: number, download = true): string => {
+    return `${API_BASE}/incidentes/${incidenteId}/imagen?download=${download}`;
+  },
+
   resolveBackendUrl: (relativeOrAbsoluteUrl?: string | null): string | null => {
     if (!relativeOrAbsoluteUrl) return null;
     if (relativeOrAbsoluteUrl.startsWith('http://') || relativeOrAbsoluteUrl.startsWith('https://')) {
@@ -228,6 +281,32 @@ export const api = {
       return res.json();
     } catch {
       return null;
+    }
+  },
+
+  getDetectionThreshold: async (): Promise<ThresholdResponse | null> => {
+    try {
+      const res = await fetch(`${API_BASE}/deteccion/threshold`);
+      if (!res.ok) return null;
+      return res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  updateDetectionThreshold: async (threshold: number): Promise<ThresholdResponse> => {
+    try {
+      const res = await fetch(`${API_BASE}/deteccion/threshold`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threshold })
+      });
+      if (!res.ok) {
+        throw new Error(await extractErrorDetail(res, 'Error actualizando el umbral de confianza'));
+      }
+      return res.json();
+    } catch (err) {
+      throw normalizeNetworkError(err, 'Error actualizando el umbral de confianza');
     }
   },
 

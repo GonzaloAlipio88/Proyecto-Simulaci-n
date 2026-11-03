@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Header } from './components/Header';
 import { DroneStatusCard } from './components/DroneStatusCard';
 import { LiveCameraFeed } from './components/LiveCameraFeed';
 import { TelemetryPanel } from './components/TelemetryPanel';
+import { RoadMap2D } from './components/RoadMap2D';
 import { DetectionViewer } from './components/DetectionViewer';
 import { IncidentLog } from './components/IncidentLog';
 import { ImageAnalysisSection } from './components/ImageAnalysisSection';
@@ -17,7 +18,8 @@ import type {
   CameraFrameStream,
   ImageAnalysisResponse,
   Incidente,
-  Drone
+  Drone,
+  MissionWaypoint
 } from './types';
 import './App.css';
 
@@ -41,6 +43,9 @@ export function App() {
 
   const [registeredDrone, setRegisteredDrone] = useState<Drone | null>(null);
   const [restTelemetry, setRestTelemetry] = useState<TelemetryData | null>(null);
+  const [telemetryHistory, setTelemetryHistory] = useState<TelemetryData[]>([]);
+  const [missionWaypoints, setMissionWaypoints] = useState<MissionWaypoint[]>([]);
+  const [mapIncidents, setMapIncidents] = useState<Incidente[]>([]);
   const [restSnapshot, setRestSnapshot] = useState<CameraFrameStream | null>(null);
   const [cameraStatus, setCameraStatus] = useState<CameraStatus | null>(null);
   const [detectionStatus, setDetectionStatus] = useState<DetectionStatus | null>(null);
@@ -95,16 +100,20 @@ export function App() {
       setHasCheckedInitialHealth(true);
 
       if (online) {
-        const [detStatus, catConfig, camStatus, dronesList] = await Promise.all([
+        const [detStatus, catConfig, camStatus, dronesList, wps, incList] = await Promise.all([
           api.getDetectionStatus(),
           api.getRoadCategories(),
           api.getCameraStatus(),
-          api.getDrones().catch(() => [] as Drone[])
+          api.getDrones().catch(() => [] as Drone[]),
+          api.getMissionWaypoints(),
+          api.getIncidentes({ limit: 100 }).catch(() => [] as Incidente[])
         ]);
 
         setDetectionStatus(detStatus);
         if (catConfig) setCategoriesConfig(catConfig);
         if (camStatus) setCameraStatus(camStatus);
+        if (wps.length > 0) setMissionWaypoints(wps);
+        setMapIncidents(incList);
 
         let targetId = 'drone-webots-01';
         if (dronesList.length > 0) {
@@ -114,9 +123,15 @@ export function App() {
           targetId = camStatus.connected_drones[0];
         }
 
-        const latestTel = await api.getLatestTelemetry(targetId);
+        const [latestTel, telHist] = await Promise.all([
+          api.getLatestTelemetry(targetId),
+          api.getTelemetryHistory(targetId, 80)
+        ]);
         if (latestTel) {
           setRestTelemetry(latestTel);
+        }
+        if (telHist.length > 0) {
+          setTelemetryHistory(telHist);
         }
       }
     } finally {
@@ -135,6 +150,34 @@ export function App() {
       clearInterval(interval);
     };
   }, [syncWithBackend]);
+
+  // Combine REST telemetry history with latest WebSocket telemetry without cascading state updates
+  const effectiveTelemetryHistory = useMemo(() => {
+    if (!wsTelemetry) return telemetryHistory;
+    const first = telemetryHistory[0];
+    if (first && first.pos_x === wsTelemetry.pos_x && first.pos_y === wsTelemetry.pos_y) {
+      return telemetryHistory;
+    }
+    return [wsTelemetry, ...telemetryHistory].slice(0, 80);
+  }, [telemetryHistory, wsTelemetry]);
+
+  // Combine REST incidents with live WebSocket & manual incident updates for the 2D Map
+  const effectiveMapIncidents = useMemo(() => {
+    let list = [...mapIncidents];
+    if (wsIncident && !list.some((item) => item.id === wsIncident.id)) {
+      list = [wsIncident, ...list];
+    }
+    if (newlyCreatedIncident && !list.some((item) => item.id === newlyCreatedIncident.id)) {
+      list = [newlyCreatedIncident, ...list];
+    }
+    if (wsUpdatedIncident) {
+      list = list.map((item) => (item.id === wsUpdatedIncident.id ? wsUpdatedIncident : item));
+    }
+    if (wsDeletedIncident) {
+      list = list.filter((item) => item.id !== wsDeletedIncident.id);
+    }
+    return list;
+  }, [mapIncidents, wsIncident, newlyCreatedIncident, wsUpdatedIncident, wsDeletedIncident]);
 
   const handleManualRecovery = async () => {
     reconnectNow();
@@ -227,10 +270,16 @@ export function App() {
             hasActiveFrame={hasActiveInspectionFrame}
             sourceLabel={viewerSourceLabel}
             isApiOnline={isApiOnline}
+            currentThreshold={detectionStatus?.confidence_threshold}
+            onThresholdChange={(newThreshold) => {
+              setDetectionStatus((prev) =>
+                prev ? { ...prev, confidence_threshold: newThreshold } : prev
+              );
+            }}
           />
         </section>
 
-        {/* Right Column: Flight Telemetry & Drone Controls */}
+        {/* Right Column: Flight Telemetry, 2D Map & Drone Controls */}
         <section className="dashboard-column flight-column">
           <DroneStatusCard
             telemetry={activeTelemetry}
@@ -238,6 +287,13 @@ export function App() {
             isApiOnline={isApiOnline}
           />
           <TelemetryPanel telemetry={activeTelemetry} />
+          <RoadMap2D
+            telemetry={activeTelemetry}
+            telemetryHistory={effectiveTelemetryHistory}
+            waypoints={missionWaypoints}
+            incidents={effectiveMapIncidents}
+            droneId={activeDroneId}
+          />
         </section>
       </main>
 

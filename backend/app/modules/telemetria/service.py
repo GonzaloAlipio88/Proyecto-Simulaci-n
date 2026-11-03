@@ -42,8 +42,26 @@ class TelemetryService:
             drone.current_waypoint = telemetry_data.current_waypoint
             drone.current_mission = telemetry_data.current_mission
             drone.last_seen_at = datetime.now(timezone.utc)
-            if drone.status == "idle" and telemetry_data.pos_z > 0.5:
+            fm_upper = (telemetry_data.flight_mode or "").upper()
+            if fm_upper == "READY_ON_GROUND":
+                drone.status = "idle"
+            elif fm_upper in ("HOVER", "HOVER_HOME"):
+                drone.status = "hovering"
+            elif fm_upper == "RETURNING":
+                drone.status = "returning"
+            elif fm_upper == "LANDED":
+                drone.status = "landed"
+            elif fm_upper in ("TAKEOFF", "NAVIGATING", "AUTONOMOUS") or (drone.status == "idle" and telemetry_data.pos_z > 0.5):
                 drone.status = "flying"
+
+            # Registro de evento de batería crítica en backend
+            if telemetry_data.battery is not None and telemetry_data.battery < 20.0:
+                logger.warning(
+                    "[Failsafe Batería Backend] Dron '%s' reporta nivel crítico (%.1f%% < 20%%). Motivo de retorno registrado: Retorno automático por batería crítica. Modo: %s",
+                    drone.id,
+                    telemetry_data.battery,
+                    telemetry_data.flight_mode
+                )
 
         else:
             # Auto-register drone if not yet registered
@@ -84,7 +102,6 @@ class TelemetryService:
             "current_mission": record.current_mission,
             "state_description": record.state_description
         })
-
 
         return record
 

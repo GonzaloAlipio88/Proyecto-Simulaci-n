@@ -110,7 +110,8 @@ export interface Incidente {
   pos_z?: number | null;
   coordenadas_tipo?: string | null;
   confidence: number;
-  imagen_id?: number;
+  imagen_id?: number | null;
+  imagen_url?: string | null;
   estado: 'reportado' | 'en_revision' | 'atendido' | 'descartado';
   timestamp: string;
 }
@@ -127,6 +128,17 @@ export interface IncidenteCreatePayload {
   confidence: number;
   imagen_id?: number | null;
   estado?: 'reportado' | 'en_revision' | 'atendido' | 'descartado';
+}
+
+export interface IncidenteStats {
+  total_incidentes: number;
+  por_tipo: Record<string, number>;
+  por_severidad: Record<string, number>;
+  por_estado: Record<string, number>;
+  con_imagen: number;
+  sin_imagen: number;
+  confianza_promedio: number;
+  ultimo_incidente_timestamp?: string | null;
 }
 
 export interface CameraStatus {
@@ -223,4 +235,23 @@ export interface HealthResponse {
   service: string;
   version: string;
   database: string;
+}
+
+export interface MissionWaypoint {
+  index: number;
+  x: number;
+  y: number;
+  z: number;
+  hover_time: number;
+  name: string;
+  description: string;
+}
+
+export interface ThresholdResponse {
+  confidence_threshold: number;
+  min_threshold: number;
+  max_threshold: number;
+  default_threshold: number;
+  updated_at: string;
+  message: string;
 }

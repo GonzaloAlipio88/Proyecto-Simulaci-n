@@ -3,7 +3,7 @@
 
 Documentación Técnica de Entrega  
 Fecha: 1 de Noviembre de 2026  
-Rama: `ioan-dev`  
+Rama: `JuanMF-dev`  
 Rol: Desarrollador Sénior Especializado en React, TypeScript, Vite y Sistemas de Visión Artificial
 
 ---

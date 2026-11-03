@@ -131,22 +131,40 @@ class DroneSupervisorController:
 
         self.step_counter = 0
         self.prev_x, self.prev_y, self.prev_z = 0.0, -45.0, 0.15
+        self.vx, self.vy, self.vz = 0.0, 0.0, 0.0
         self.current_speed = 0.0
         self.battery = 100.0
 
         # Register drone in backend
         self.comm.register(name="DJI Mavic 2 Pro (Webots Sim)", model="DJI Mavic 2 Pro Quadrotor")
 
+    def poll_and_execute_remote_commands(self, pos_x: float, pos_y: float, altitude: float, sim_time: float):
+        """Fetches pending remote commands from FastAPI and executes them on the FlightController."""
+        pending = self.comm.fetch_pending_commands(consume=True)
+        for cmd_obj in pending:
+            cmd_name = cmd_obj.get("command") or cmd_obj.get("raw_command") or ""
+            params = cmd_obj.get("params") or {}
+            res = self.nav.execute_command(
+                command=cmd_name,
+                current_pos=(pos_x, pos_y, altitude),
+                sim_time=sim_time,
+                params=params,
+            )
+            logger.info(f"[COMANDO REMOTO WEBOTS] {cmd_name} -> {res.get('new_state')}")
+
     def run(self):
         print("===================================================================")
         print("   CONTROLADOR AUTÓNOMO DE MISIÓN INICIADO EN WEBOTS")
-        print("   Misión: DESPEGUE -> WAYPOINTS (1, 2, 3) -> HOVER -> RTL -> ATERRIZAJE")
+        print("   Misión: DESPEGUE -> 5 WAYPOINTS -> HOVER -> RTL -> ATERRIZAJE")
+        print("   Comandos Remotos Activos: TAKEOFF, HOVER, RESUME_PATROL, RTH, LAND")
         print("===================================================================")
 
         last_telemetry_time = 0.0
         last_frame_time = 0.0
         last_status_print_time = 0.0
         saved_first_frame = False
+        landed_announced = False
+        ready_announced = False
 
         evidence_frame_path = script_dir.parent.parent / "latest_webots_camera_frame.jpg"
 
@@ -157,41 +175,53 @@ class DroneSupervisorController:
             # 1. Read Sensors
             roll, pitch, yaw = self.imu.getRollPitchYaw() if self.imu else (0.0, 0.0, 0.0)
             pos_x, pos_y, altitude = self.gps.getValues() if self.gps else (0.0, -45.0, 0.15)
-            roll_acc, pitch_acc, _ = self.gyro.getValues() if self.gyro else (0.0, 0.0, 0.0)
+            roll_acc, pitch_acc, yaw_acc = self.gyro.getValues() if self.gyro else (0.0, 0.0, 0.0)
 
-            # Speed estimation
-            dt = self.time_step / 1000.0
+            # Velocity and speed estimation
+            dt = max(self.time_step / 1000.0, 0.001)
             dx = pos_x - self.prev_x
             dy = pos_y - self.prev_y
             dz = altitude - self.prev_z
-            self.current_speed = math.sqrt(dx*dx + dy*dy + dz*dz) / max(dt, 0.001)
+            self.vx = dx / dt
+            self.vy = dy / dt
+            self.vz = dz / dt
+            self.current_speed = math.sqrt(dx*dx + dy*dy + dz*dz) / dt
             self.prev_x, self.prev_y, self.prev_z = pos_x, pos_y, altitude
 
             # Battery discharge simulation
             self.battery = max(10.0, 100.0 - (sim_time * 0.08))
 
             # 2. Update Flight State Machine & Target Position
-            target_x, target_y, target_z = self.nav.update(pos_x, pos_y, altitude, sim_time)
+            target_x, target_y, target_z = self.nav.update(pos_x, pos_y, altitude, sim_time, battery=self.battery)
             flight_state = self.nav.get_state()
             target_altitude = self.nav.target_altitude
 
             # Periodic Flight Telemetry Print to Console
             if (sim_time - last_status_print_time) >= 1.0:
                 last_status_print_time = sim_time
-                print(f"[DRON EN VUELO REAL] T={sim_time:5.1f}s | Estado: {flight_state:11s} | Pos: [{pos_x:5.2f}, {pos_y:5.2f}, {altitude:5.2f}m] | Vel: {self.current_speed:4.2f}m/s | Bat: {self.battery:4.1f}%")
+                print(f"[DRON EN VUELO REAL] T={sim_time:5.1f}s | Estado: {flight_state:15s} | Pos: [{pos_x:5.2f}, {pos_y:5.2f}, {altitude:5.2f}m] | Vel: {self.current_speed:4.2f}m/s | Bat: {self.battery:4.1f}%")
 
             # 3. Dynamic Flight Controls & Disturbance Calculations
             roll_disturbance = 0.0
             pitch_disturbance = 0.0
             yaw_disturbance = 0.0
 
-            if flight_state == "LANDED":
-                # Complete engine cut on ground
+            if flight_state in ("LANDED", "READY_ON_GROUND"):
+                # Complete engine cut on ground while remaining responsive to remote TAKEOFF / RESUME_PATROL
                 front_left = 0.0
                 front_right = 0.0
                 rear_left = 0.0
                 rear_right = 0.0
+                if flight_state == "READY_ON_GROUND":
+                    if not ready_announced:
+                        ready_announced = True
+                        print("[Webots Drone Supervisor] DRON EN TIERRA (READY_ON_GROUND). Motores apagados. En espera de comando TAKEOFF.")
+                elif self.nav.mission_complete and not landed_announced:
+                    landed_announced = True
+                    print("[Webots Drone Supervisor] MISIÓN COMPLETADA. En espera de comandos remotos en tierra.")
             else:
+                landed_announced = False
+                ready_announced = False
                 if flight_state in ["NAVIGATING", "RETURNING"]:
                     delta_x = target_x - pos_x
                     delta_y = target_y - pos_y
@@ -209,24 +239,23 @@ class DroneSupervisorController:
                         # Prioritize yaw orientation before moving full speed forward
                         pitch_disturbance = -0.05
 
-                elif flight_state in ["HOVER", "HOVER_HOME"]:
-                    # Exact position hold with zero attitude perturbation
+                elif flight_state in ["TAKEOFF", "HOVER", "HOVER_HOME", "LANDING"]:
+                    # Active horizontal velocity damping & position hold in body frame
                     yaw_disturbance = 0.0
-                    pitch_disturbance = 0.0
-                    roll_disturbance = 0.0
+                    pitch_disturbance, roll_disturbance = self.nav.compute_hover_damping(
+                        pos_x=pos_x,
+                        pos_y=pos_y,
+                        target_x=target_x,
+                        target_y=target_y,
+                        vx=self.vx,
+                        vy=self.vy,
+                        yaw=yaw,
+                    )
 
-                elif flight_state == "LANDING":
-                    # Gentle vertical descent over launch pad
-                    delta_x = target_x - pos_x
-                    delta_y = target_y - pos_y
-                    yaw_disturbance = 0.0
-                    pitch_disturbance = clamp(delta_y * 0.1, -0.1, 0.1)
-                    roll_disturbance = clamp(-delta_x * 0.1, -0.1, 0.1)
-
-                # PID Attitude & Altitude computation
+                # PID Attitude & Altitude computation with yaw rate damping
                 roll_input = self.K_ROLL_P * clamp(roll, -1.0, 1.0) + roll_acc + roll_disturbance
                 pitch_input = self.K_PITCH_P * clamp(pitch, -1.0, 1.0) + pitch_acc + pitch_disturbance
-                yaw_input = yaw_disturbance
+                yaw_input = yaw_disturbance - 0.5 * yaw_acc
 
                 clamped_alt_diff = clamp(target_altitude - altitude + self.K_VERTICAL_OFFSET, -1.0, 1.0)
                 vertical_input = self.K_VERTICAL_P * pow(clamped_alt_diff, 3.0)
@@ -243,7 +272,7 @@ class DroneSupervisorController:
             self.rear_left_motor.setVelocity(-rear_left)
             self.rear_right_motor.setVelocity(rear_right)
 
-            # 4. Transmit Telemetry to FastAPI Backend (~10 Hz)
+            # 4. Transmit Telemetry & Poll Remote Commands (~10 Hz)
             if (sim_time - last_telemetry_time) >= 0.10:
                 last_telemetry_time = sim_time
                 self.comm.send_telemetry(
@@ -260,6 +289,7 @@ class DroneSupervisorController:
                     current_mission=self.nav.mission_name,
                     state_description=self.nav.state_description
                 )
+                self.poll_and_execute_remote_commands(pos_x, pos_y, altitude, sim_time)
 
             # 5. Capture & Send Camera Frame (~2.5 Hz)
             if (sim_time - last_frame_time) >= 0.40 and self.camera and cv2 is not None:
@@ -289,12 +319,6 @@ class DroneSupervisorController:
                                 run_detection=True,
                                 timestamp=iso_ts
                             )
-
-            if self.nav.mission_complete and flight_state == "LANDED":
-                print("[Webots Drone Supervisor] MISIÓN COMPLETADA CON ÉXITO. APAGANDO SISTEMAS.")
-                # Hold motors cut for a few seconds then finish
-                time.sleep(1.0)
-                break
 
 if __name__ == "__main__":
     controller = DroneSupervisorController()
