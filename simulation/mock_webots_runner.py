@@ -33,22 +33,22 @@ def generate_synthetic_scene(t: float, step: int, flight_state: str, wp_idx: int
     # Road center line
     cv2.line(img, (320, 180), (320, 480), (220, 220, 220), 2)
 
-    # Contextual targets based on current waypoint / area
-    if wp_idx == 1:
+    # Contextual targets based on current waypoint (1..5)
+    if wp_idx in (1, 5):
         # TARGET 1: Poste de Luz (Tall vertical pole with lamp head)
         pole_x = 440
         cv2.rectangle(img, (pole_x, 100), (pole_x + 14, 380), (180, 180, 190), -1)
         cv2.rectangle(img, (pole_x - 30, 85), (pole_x + 15, 105), (100, 240, 255), -1)
         cv2.circle(img, (pole_x - 15, 95), 18, (120, 255, 255), -1)
 
-    elif wp_idx == 2:
+    if wp_idx in (2, 4):
         # TARGET 2: Vegetación Invasiva (Overgrown bushes spilling over the road)
         bush_pts = np.array([[120, 320], [240, 280], [290, 360], [220, 440], [110, 420]], np.int32)
         cv2.fillPoly(img, [bush_pts], (30, 160, 40))
         cv2.circle(img, (180, 340), 45, (25, 140, 35), -1)
         cv2.circle(img, (240, 370), 38, (35, 180, 50), -1)
 
-    elif wp_idx == 3:
+    if wp_idx in (3, 5):
         # TARGET 3: Obstrucción de Vía (Cajas/Obstáculos en el centro de la vía)
         cv2.rectangle(img, (270, 340), (370, 430), (35, 75, 140), -1)
         cv2.rectangle(img, (285, 300), (355, 340), (45, 90, 160), -1)
@@ -62,14 +62,7 @@ def generate_synthetic_scene(t: float, step: int, flight_state: str, wp_idx: int
 
 def run_test_mission(backend_url: str = "http://127.0.0.1:8000"):
     print("=======================================================================")
-    print("  EJECUTANDO MISIÓN DE PRUEBA OFICIAL")
-    print("  1. Iniciar en posición conocida (0.0, -45.0, 0.15)")
-    print("  2. Despegar a 6.0m")
-    print("  3. Ir a Waypoint 1 (0.0, -20.0, 6.0) -> Hover 3s")
-    print("  4. Ir a Waypoint 2 (0.0, 5.0, 6.0) -> Hover 3s")
-    print("  5. Ir a Waypoint 3 (0.0, 30.0, 6.0) -> Hover 3s")
-    print("  6. Regresar a Home (0.0, -45.0, 6.0) -> Hover 2s")
-    print("  7. Aterrizar de manera controlada")
+    print("  EJECUTANDO MISIÓN DE PRUEBA OFICIAL (5 WAYPOINTS + COMANDOS REMOTOS)")
     print("=======================================================================")
 
     comm = DroneCommunicationClient(backend_url=backend_url, drone_id="drone-webots-01")
@@ -91,17 +84,21 @@ def run_test_mission(backend_url: str = "http://127.0.0.1:8000"):
     current_z = 0.15
     current_yaw = 1.5708 # Facing North along the track
 
-    start_wall_time = time.time()
     sim_time = 0.0
     dt = 0.10 # 100ms per simulation step
     step = 0
 
     states_visited = []
 
-    # Run until mission complete or max 60s
-    while sim_time < 60.0 and not (nav.mission_complete and current_z <= 0.20):
+    # Run until mission complete or max 90s
+    while sim_time < 90.0 and not (nav.mission_complete and current_z <= 0.20):
         step += 1
         sim_time += dt
+
+        # Poll remote commands from Backend
+        for cmd_obj in comm.fetch_pending_commands(consume=True):
+            cmd_name = cmd_obj.get("command") or cmd_obj.get("raw_command") or ""
+            nav.execute_command(cmd_name, current_pos=(current_x, current_y, current_z), sim_time=sim_time, params=cmd_obj.get("params"))
 
         # Update flight controller target
         target_x, target_y, target_z = nav.update(current_x, current_y, current_z, sim_time)
@@ -129,7 +126,7 @@ def run_test_mission(backend_url: str = "http://127.0.0.1:8000"):
             current_z += (target_z - current_z) * 0.2
             current_speed = 2.8
         elif state in ["HOVER", "HOVER_HOME"]:
-            # Stationary hover: hold position exactly
+            # Stationary hover: hold position with velocity damping
             current_x += (target_x - current_x) * 0.1
             current_y += (target_y - current_y) * 0.1
             current_z += (target_z - current_z) * 0.1
@@ -140,7 +137,7 @@ def run_test_mission(backend_url: str = "http://127.0.0.1:8000"):
             current_x += (target_x - current_x) * 0.1
             current_y += (target_y - current_y) * 0.1
             current_speed = 0.6
-        elif state == "LANDED":
+        elif state in ["LANDED", "READY_ON_GROUND"]:
             current_z = 0.15
             current_speed = 0.0
 

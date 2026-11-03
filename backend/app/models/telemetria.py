@@ -1,6 +1,10 @@
+import sys
 from sqlalchemy import Column, Integer, String, Float, DateTime
 from datetime import datetime
 from backend.app.core.database import Base
+
+sys.modules["backend.app.models.telemetria"] = sys.modules[__name__]
+sys.modules["app.models.telemetria"] = sys.modules[__name__]
 
 class TelemetryRecord(Base):
     __tablename__ = "telemetria"
@@ -28,4 +32,3 @@ class TelemetryRecord(Base):
     current_waypoint = Column(Integer, default=0)
     current_mission = Column(String(100), default="Inspeccion_Vias_Demo")
     state_description = Column(String(200), nullable=True)
-

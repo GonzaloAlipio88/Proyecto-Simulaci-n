@@ -1,0 +1,98 @@
+{
+  "rest_endpoints": {
+    "GET /health": {
+      "mean_ms": 0.17,
+      "p50_ms": 0.16,
+      "p95_ms": 0.28,
+      "min_ms": 0.15,
+      "max_ms": 0.28
+    },
+    "GET /api/v1/drones": {
+      "mean_ms": 0.56,
+      "p50_ms": 0.53,
+      "p95_ms": 0.66,
+      "min_ms": 0.51,
+      "max_ms": 0.98
+    },
+    "GET /api/v1/deteccion/status": {
+      "mean_ms": 0.33,
+      "p50_ms": 0.32,
+      "p95_ms": 0.4,
+      "min_ms": 0.31,
+      "max_ms": 0.46
+    },
+    "GET /api/v1/deteccion/threshold": {
+      "mean_ms": 0.19,
+      "p50_ms": 0.18,
+      "p95_ms": 0.21,
+      "min_ms": 0.17,
+      "max_ms": 0.49
+    },
+    "GET /api/v1/incidentes/stats": {
+      "mean_ms": 2.25,
+      "p50_ms": 1.9,
+      "p95_ms": 4.39,
+      "min_ms": 1.74,
+      "max_ms": 5.2
+    },
+    "PUT /api/v1/deteccion/threshold": {
+      "mean_ms": 0.24,
+      "p50_ms": 0.22,
+      "p95_ms": 0.28,
+      "min_ms": 0.21,
+      "max_ms": 0.56
+    }
+  },
+  "database_performance": {
+    "incident_create_ms": {
+      "mean_ms": 3.22,
+      "p50_ms": 3.14,
+      "p95_ms": 3.82
+    },
+    "telemetry_ingest_ms": {
+      "mean_ms": 3.72,
+      "p50_ms": 3.66,
+      "p95_ms": 4.22
+    }
+  },
+  "vision_performance": {
+    "image_resolution": "640x480",
+    "opencv_heuristic": {
+      "mean_ms": 1.8,
+      "p50_ms": 1.73,
+      "p95_ms": 2.13,
+      "fps": 556.3,
+      "detections": 1
+    },
+    "yolo_cpu": {
+      "mean_ms": 23.25,
+      "p50_ms": 21.29,
+      "p95_ms": 44.99,
+      "fps": 43.0,
+      "detections": 0,
+      "mode": "pretrained_generic"
+    },
+    "full_camera_ingest_pipeline": {
+      "mean_ms": 32.4,
+      "p50_ms": 31.61,
+      "p95_ms": 42.71,
+      "fps": 30.9
+    }
+  },
+  "simulation_endurance": {
+    "total_cycles": 1000,
+    "elapsed_seconds": 0.0004,
+    "avg_cycle_ms": 0.0004,
+    "frequency_hz": 2235136.3,
+    "states_visited": [
+      "HOVER",
+      "HOVER_HOME",
+      "NAVIGATING",
+      "READY_ON_GROUND",
+      "RETURNING",
+      "TAKEOFF"
+    ],
+    "errors_count": 0,
+    "status": "PASS"
+  }
+}

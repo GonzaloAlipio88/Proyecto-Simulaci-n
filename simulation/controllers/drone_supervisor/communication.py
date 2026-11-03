@@ -1,15 +1,12 @@
 import os
-import base64
-import json
 import logging
-import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import requests
 
 logger = logging.getLogger("drone_comm")
 
 class DroneCommunicationClient:
-    """Handles communication between Webots drone simulation and FastAPI backend."""
+    """Handles bidirectional HTTP communication between Webots drone simulation and FastAPI backend."""
 
     def __init__(self, backend_url: str = "http://127.0.0.1:8000", drone_id: str = "drone-webots-01"):
         env_backend = os.environ.get("BACKEND_URL")
@@ -79,6 +76,21 @@ class DroneCommunicationClient:
             logger.debug(f"Telemetry send failed: {e}")
             return False
 
+    def fetch_pending_commands(self, consume: bool = True) -> List[Dict[str, Any]]:
+        """Polls the FastAPI backend for remote commands queued from the Dashboard."""
+        try:
+            res = self.session.get(
+                f"{self.api_prefix}/drones/{self.drone_id}/commands",
+                params={"consume": "true" if consume else "false"},
+                timeout=0.35
+            )
+            if res.status_code == 200:
+                data = res.json()
+                return data.get("commands", [])
+        except Exception as e:
+            logger.debug(f"Command poll failed: {e}")
+        return []
+
     def send_camera_frame(
         self,
         image_base64: str,
@@ -104,4 +116,3 @@ class DroneCommunicationClient:
         except Exception as e:
             logger.debug(f"Frame send failed: {e}")
         return None
-

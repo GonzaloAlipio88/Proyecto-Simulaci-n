@@ -1,16 +1,91 @@
-import type { FC } from 'react';
-import { Target, Zap, CheckCircle2 } from 'lucide-react';
-import type { DetectionItem, DetectionStatus } from '../types';
+import { useState, useMemo, type FC } from 'react';
+import { Target, Zap, CheckCircle2, Scan, WifiOff, AlertTriangle, Info, Sliders, Check, RefreshCw } from 'lucide-react';
+import type { DetectionItem, DetectionStatus, RoadCategoriesConfig } from '../types';
+import { api } from '../services/api';
 
 interface DetectionViewerProps {
   detections: DetectionItem[];
   detectionStatus?: DetectionStatus | null;
+  categoriesConfig?: RoadCategoriesConfig | null;
+  hasActiveFrame?: boolean;
+  sourceLabel?: string;
+  isApiOnline?: boolean;
+  onThresholdChange?: (newThreshold: number) => void;
+  currentThreshold?: number;
 }
 
-export const DetectionViewer: FC<DetectionViewerProps> = ({ detections, detectionStatus = null }) => {
+export const DetectionViewer: FC<DetectionViewerProps> = ({
+  detections,
+  detectionStatus = null,
+  categoriesConfig = null,
+  hasActiveFrame = false,
+  sourceLabel = 'Stream Webots',
+  isApiOnline = true,
+  onThresholdChange,
+  currentThreshold
+}) => {
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const effectiveThreshold = currentThreshold ?? detectionStatus?.confidence_threshold ?? 0.25;
+  const [userVal, setUserVal] = useState<number | null>(null);
+  const sliderVal = userVal ?? effectiveThreshold;
+  const [isUpdatingThreshold, setIsUpdatingThreshold] = useState<boolean>(false);
+  const [thresholdUpdateMsg, setThresholdUpdateMsg] = useState<string | null>(null);
 
-  const getBadgeClass = (label: string) => {
-    switch (label) {
+  const handleCommitThreshold = async (val: number) => {
+    const clamped = Math.min(0.50, Math.max(0.15, Math.round(val * 100) / 100));
+    setUserVal(clamped);
+    setIsUpdatingThreshold(true);
+    setThresholdUpdateMsg(null);
+    try {
+      const res = await api.updateDetectionThreshold(clamped);
+      setUserVal(null);
+      setThresholdUpdateMsg(`Guardado (${(res.confidence_threshold * 100).toFixed(0)}%)`);
+      if (onThresholdChange) {
+        onThresholdChange(res.confidence_threshold);
+      }
+      setTimeout(() => setThresholdUpdateMsg(null), 3500);
+    } catch (err) {
+      console.error('Error actualizando umbral de confianza:', err);
+      setThresholdUpdateMsg('Error al guardar');
+      setTimeout(() => setThresholdUpdateMsg(null), 3000);
+    } finally {
+      setIsUpdatingThreshold(false);
+    }
+  };
+
+  const handlePresetClick = (presetVal: number) => {
+    handleCommitThreshold(presetVal);
+  };
+
+  const getEffectiveCategory = (det: DetectionItem) => {
+    return det.normalized_category || det.label || 'otro';
+  };
+
+  const categoryCounts = useMemo(() => {
+    const counts = {
+      all: detections.length,
+      poste_luz: 0,
+      vegetacion_invasiva: 0,
+      obstruccion_via: 0,
+      otro: 0
+    };
+    for (const det of detections) {
+      const cat = det.normalized_category || det.label || 'otro';
+      if (cat === 'poste_luz') counts.poste_luz += 1;
+      else if (cat === 'vegetacion_invasiva') counts.vegetacion_invasiva += 1;
+      else if (cat === 'obstruccion_via') counts.obstruccion_via += 1;
+      else counts.otro += 1;
+    }
+    return counts;
+  }, [detections]);
+
+  const filteredDetections = useMemo(() => {
+    if (selectedCategory === 'all') return detections;
+    return detections.filter((d) => (d.normalized_category || d.label || 'otro') === selectedCategory);
+  }, [detections, selectedCategory]);
+
+  const getBadgeClass = (category: string) => {
+    switch (category) {
       case 'poste_luz':
         return 'badge-class-pole';
       case 'vegetacion_invasiva':
@@ -22,18 +97,35 @@ export const DetectionViewer: FC<DetectionViewerProps> = ({ detections, detectio
     }
   };
 
-  const getLabelTitle = (label: string) => {
-    switch (label) {
+  const getLabelTitle = (category: string) => {
+    switch (category) {
       case 'poste_luz':
         return 'Poste de Luz';
       case 'vegetacion_invasiva':
         return 'Vegetación Invasiva';
       case 'obstruccion_via':
         return 'Obstrucción en Vía';
+      case 'otro':
+        return 'Anomalía / No Catalogado';
       default:
-        return label;
+        return category;
     }
   };
+
+  const getReviewStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'confirmado':
+        return { label: 'Confirmado', className: 'status-tag-confirmed' };
+      case 'pendiente_revision':
+        return { label: 'Pendiente de Revisión', className: 'status-tag-review' };
+      case 'descartado':
+        return { label: 'Descartado', className: 'status-tag-dismissed' };
+      default:
+        return { label: 'Reportado', className: 'status-tag-reported' };
+    }
+  };
+
+  const thresholds = categoriesConfig?.default_thresholds;
 
   return (
     <div className="card detection-viewer-card">
@@ -44,66 +136,318 @@ export const DetectionViewer: FC<DetectionViewerProps> = ({ detections, detectio
             <h2 className="card-title">INSPECTOR DE VISIÓN ARTIFICIAL (IA)</h2>
             {detectionStatus && (
               <div className="detector-status-sub">
-                <span className={`status-badge-mini ${detectionStatus.yolo_ready ? 'badge-yolo-active' : 'badge-fallback-active'}`}>
+                <span
+                  className={`status-badge-mini ${
+                    detectionStatus.yolo_ready ? 'badge-yolo-active' : 'badge-fallback-active'
+                  }`}
+                >
                   {detectionStatus.yolo_ready
                     ? `● YOLO Real Activo (${detectionStatus.active_model}) · ${detectionStatus.device.toUpperCase()}`
                     : detectionStatus.is_fallback
                     ? '▲ Fallback Activo: OpenCV Heurístico'
-                    : '■ Diagnóstico'}
+                    : '■ Modo Diagnóstico'}
                 </span>
                 {detectionStatus.model_mode && (
                   <span className="detector-mode-tag">
-                    {detectionStatus.model_mode === 'pretrained_generic' ? 'Modo Preentrenado COCO' : 'Especializado Vial'}
+                    {detectionStatus.model_mode === 'pretrained_generic'
+                      ? 'Preentrenado COCO (Mapeo Vial)'
+                      : 'Especializado Vial'}
                   </span>
                 )}
               </div>
             )}
           </div>
         </div>
-        <span className="count-pill">{detections.length} activos</span>
+        <div className="detection-header-right">
+          {hasActiveFrame && <span className="source-tag-mini">{sourceLabel}</span>}
+          <span className="count-pill">{detections.length} detecciones</span>
+        </div>
+      </div>
+
+      {/* Dynamic Confidence Threshold Slider Bar (Semana 11) */}
+      <div className="detection-threshold-panel">
+        <div className="threshold-panel-header">
+          <div className="threshold-title-row">
+            <Sliders size={13} className="text-cyan" />
+            <span>Umbral de Confianza (YOLO & Heurística):</span>
+            <strong className="threshold-val-badge">
+              {(effectiveThreshold * 100).toFixed(0)}% ({effectiveThreshold.toFixed(2)})
+            </strong>
+            {isUpdatingThreshold && (
+              <span className="threshold-saving-pill">
+                <RefreshCw size={10} className="spin-icon" /> Guardando...
+              </span>
+            )}
+            {thresholdUpdateMsg && (
+              <span className="threshold-success-pill">
+                <Check size={10} /> {thresholdUpdateMsg}
+              </span>
+            )}
+          </div>
+          <div className="threshold-presets">
+            <button
+              type="button"
+              className={`preset-btn ${Math.abs(sliderVal - 0.20) < 0.005 ? 'preset-btn-active' : ''}`}
+              onClick={() => handlePresetClick(0.20)}
+              disabled={isUpdatingThreshold || !isApiOnline}
+              title="Sensible (0.20): Mayor detección de objetos lejanos, mayor riesgo de falsos positivos"
+            >
+              Sensible (0.20)
+            </button>
+            <button
+              type="button"
+              className={`preset-btn ${Math.abs(sliderVal - 0.25) < 0.005 ? 'preset-btn-active' : ''}`}
+              onClick={() => handlePresetClick(0.25)}
+              disabled={isUpdatingThreshold || !isApiOnline}
+              title="Equilibrado (0.25): Balance óptimo para corredor vial de Ciénaga"
+            >
+              Equilibrado (0.25)
+            </button>
+            <button
+              type="button"
+              className={`preset-btn ${Math.abs(sliderVal - 0.40) < 0.005 ? 'preset-btn-active' : ''}`}
+              onClick={() => handlePresetClick(0.40)}
+              disabled={isUpdatingThreshold || !isApiOnline}
+              title="Conservador (0.40): Máxima certeza, reduce detecciones débiles"
+            >
+              Conservador (0.40)
+            </button>
+          </div>
+        </div>
+
+        <div className="threshold-slider-row">
+          <span className="threshold-bound">0.15</span>
+          <input
+            type="range"
+            min="0.15"
+            max="0.50"
+            step="0.01"
+            value={sliderVal}
+            onChange={(e) => setUserVal(parseFloat(e.target.value))}
+            onMouseUp={() => handleCommitThreshold(sliderVal)}
+            onTouchEnd={() => handleCommitThreshold(sliderVal)}
+            disabled={isUpdatingThreshold || !isApiOnline}
+            className="threshold-range-input"
+            aria-label="Ajuste de umbral de confianza YOLO"
+          />
+          <span className="threshold-bound">0.50</span>
+        </div>
+
+        <div className="threshold-footnote">
+          <Info size={11} className="text-cyan flex-shrink-0" />
+          <span>
+            {sliderVal < 0.22
+              ? 'Umbral bajo (<0.22): Aumenta la exhaustividad pero puede incrementar falsos positivos por sombras o texturas complejas.'
+              : sliderVal > 0.35
+              ? 'Umbral alto (>0.35): Mayor precisión técnica; solo reporta anomalías con alta certidumbre visual.'
+              : 'Umbral estándar (0.22–0.35): Comportamiento balanceado entre sensibilidad y especificidad.'}
+          </span>
+        </div>
+      </div>
+
+      {/* Category Breakdown & Filter Chips (Postes, Vegetación, Obstáculos) */}
+      <div className="detection-category-bar">
+        <button
+          type="button"
+          className={`cat-filter-chip ${selectedCategory === 'all' ? 'cat-chip-active' : ''}`}
+          onClick={() => setSelectedCategory('all')}
+        >
+          <span>Todas</span>
+          <strong>{categoryCounts.all}</strong>
+        </button>
+        <button
+          type="button"
+          className={`cat-filter-chip cat-chip-pole ${
+            selectedCategory === 'poste_luz' ? 'cat-chip-active' : ''
+          }`}
+          onClick={() => setSelectedCategory('poste_luz')}
+          title={
+            thresholds?.poste_luz
+              ? `Umbral configurado para Postes de Luz: ${(thresholds.poste_luz * 100).toFixed(0)}%`
+              : 'Postes de Luz'
+          }
+        >
+          <span className="legend-indicator legend-pole"></span>
+          <span>Postes</span>
+          <strong>{categoryCounts.poste_luz}</strong>
+        </button>
+        <button
+          type="button"
+          className={`cat-filter-chip cat-chip-veg ${
+            selectedCategory === 'vegetacion_invasiva' ? 'cat-chip-active' : ''
+          }`}
+          onClick={() => setSelectedCategory('vegetacion_invasiva')}
+          title={
+            thresholds?.vegetacion_invasiva
+              ? `Umbral configurado para Vegetación Invasiva: ${(
+                  thresholds.vegetacion_invasiva * 100
+                ).toFixed(0)}%`
+              : 'Vegetación Invasiva'
+          }
+        >
+          <span className="legend-indicator legend-veg"></span>
+          <span>Vegetación</span>
+          <strong>{categoryCounts.vegetacion_invasiva}</strong>
+        </button>
+        <button
+          type="button"
+          className={`cat-filter-chip cat-chip-obs ${
+            selectedCategory === 'obstruccion_via' ? 'cat-chip-active' : ''
+          }`}
+          onClick={() => setSelectedCategory('obstruccion_via')}
+          title={
+            thresholds?.obstruccion_via
+              ? `Umbral configurado para Obstrucciones: ${(thresholds.obstruccion_via * 100).toFixed(0)}%`
+              : 'Obstrucciones en Vía'
+          }
+        >
+          <span className="legend-indicator legend-obs"></span>
+          <span>Obstáculos</span>
+          <strong>{categoryCounts.obstruccion_via}</strong>
+        </button>
+        {categoryCounts.otro > 0 && (
+          <button
+            type="button"
+            className={`cat-filter-chip ${selectedCategory === 'otro' ? 'cat-chip-active' : ''}`}
+            onClick={() => setSelectedCategory('otro')}
+          >
+            <span>Otros</span>
+            <strong>{categoryCounts.otro}</strong>
+          </button>
+        )}
       </div>
 
       <div className="detections-list">
-        {detections.length === 0 ? (
+        {!isApiOnline ? (
+          <div className="empty-state">
+            <WifiOff size={30} className="text-red opacity-75" />
+            <p>Sin conexión con el backend. No es posible consultar el estado del motor de visión.</p>
+          </div>
+        ) : !hasActiveFrame && detections.length === 0 ? (
+          <div className="empty-state">
+            <Scan size={30} className="text-cyan opacity-60" />
+            <p>
+              Sin fotograma activo en inspección. Inicie el flujo desde Webots o cargue una imagen JPG/PNG abajo para visualizar las detecciones reales.
+            </p>
+          </div>
+        ) : filteredDetections.length === 0 ? (
           <div className="empty-state">
             <CheckCircle2 size={32} className="text-green opacity-70" />
-            <p>Vía despejada. No se detectan anomalías en el encuadre actual.</p>
+            <p>
+              {selectedCategory === 'all'
+                ? 'Vía despejada. No se detectan anomalías en el encuadre analizado.'
+                : `No hay detecciones de la categoría "${getLabelTitle(selectedCategory)}" en el encuadre actual.`}
+            </p>
           </div>
         ) : (
-          detections.map((det, idx) => (
-            <div key={idx} className="detection-card-item">
-              <div className="detection-card-top">
-                <span className={`class-badge ${getBadgeClass(det.label)}`}>
-                  {getLabelTitle(det.label)}
-                </span>
-                <span className="confidence-chip">
-                  <Zap size={12} className="text-amber inline mr-1" />
-                  {(det.confidence * 100).toFixed(0)}% Confianza
-                </span>
-              </div>
+          filteredDetections.map((det, idx) => {
+            const category = getEffectiveCategory(det);
+            const reviewStatus = getReviewStatusBadge(det.review_status);
+            const boxWidth = Math.max(0, det.bbox.x_max - det.bbox.x_min);
+            const boxHeight = Math.max(0, det.bbox.y_max - det.bbox.y_min);
+            const showJustification =
+              det.justification && det.justification !== det.description;
 
-              {det.description && (
-                <p className="detection-desc">{det.description}</p>
-              )}
+            return (
+              <div key={det.id || idx} className="detection-card-item">
+                <div className="detection-card-top">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className={`class-badge ${getBadgeClass(category)}`}>
+                      {getLabelTitle(category)}
+                    </span>
+                    {det.raw_label && det.raw_label !== category && (
+                      <span
+                        className="raw-model-tag"
+                        title={`Etiqueta en bruto devuelta por el modelo: ${det.raw_label}`}
+                      >
+                        modelo: {det.raw_label}
+                      </span>
+                    )}
+                    {det.is_incident_candidate && (
+                      <span
+                        className="incident-candidate-tag"
+                        title="Esta detección cumple los criterios viales para registrarse como incidente"
+                      >
+                        <AlertTriangle size={10} className="inline mr-1" />
+                        {det.incident_id ? `Incidente #${det.incident_id}` : 'Candidato a Incidente'}
+                      </span>
+                    )}
+                    {det.is_duplicate && (
+                      <span
+                        className="dedup-tag"
+                        title="Detección repetida amortiguada por ventana de deduplicación"
+                      >
+                        x{det.repetition_count || 2}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className={`review-status-pill ${reviewStatus.className}`}>
+                      {reviewStatus.label}
+                    </span>
+                    <span className="confidence-chip">
+                      <Zap size={12} className="text-amber inline mr-1" />
+                      {(det.confidence * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
 
-              <div className="confidence-bar-container">
-                <div
-                  className="confidence-bar-fill"
-                  style={{ width: `${det.confidence * 100}%` }}
-                ></div>
-              </div>
+                {det.description && <p className="detection-desc">{det.description}</p>}
+                {showJustification && (
+                  <p className="detection-justification">
+                    <Info size={11} className="inline mr-1 text-cyan" />
+                    {det.justification}
+                  </p>
+                )}
 
-              <div className="bbox-info">
-                <span>
-                  BBox: [{det.bbox.x_min.toFixed(0)}, {det.bbox.y_min.toFixed(0)}] a [
-                  {det.bbox.x_max.toFixed(0)}, {det.bbox.y_max.toFixed(0)}]
-                </span>
-                <span className={`severity-tag severity-${det.severity}`}>
-                  Severidad {det.severity}
-                </span>
+                <div className="confidence-bar-container">
+                  <div
+                    className="confidence-bar-fill"
+                    style={{ width: `${Math.min(100, Math.max(0, det.confidence * 100))}%` }}
+                  ></div>
+                </div>
+
+                <div className="bbox-info">
+                  <span>
+                    BBox: [{det.bbox.x_min.toFixed(0)}, {det.bbox.y_min.toFixed(0)}] → [
+                    {det.bbox.x_max.toFixed(0)}, {det.bbox.y_max.toFixed(0)}] ({boxWidth.toFixed(0)}×
+                    {boxHeight.toFixed(0)} px)
+                  </span>
+                  <span className={`severity-tag severity-${det.severity}`}>
+                    Severidad {det.severity}
+                  </span>
+                </div>
+
+                {/* Local simulation location vs GPS */}
+                <div className="detection-meta-footer">
+                  {det.simulation_coords ? (
+                    <span
+                      className="sim-coords-text"
+                      title={`Coordenadas métricas en ${
+                        det.coordinate_system || 'simulation_webots_cartesian_meters'
+                      }`}
+                    >
+                      📍 Sim: [{det.simulation_coords.pos_x.toFixed(1)},{' '}
+                      {det.simulation_coords.pos_y.toFixed(1)},{' '}
+                      {det.simulation_coords.pos_z.toFixed(1)} m]
+                    </span>
+                  ) : (
+                    <span className="sim-coords-absent">
+                      📍 Sin posición de simulación (GPS no disponible)
+                    </span>
+                  )}
+                  <div className="detection-meta-right">
+                    {det.frame_id && <span className="frame-id-tag">#{det.frame_id}</span>}
+                    {det.timestamp && (
+                      <span className="detection-time-text">
+                        ⏱ {new Date(det.timestamp).toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>

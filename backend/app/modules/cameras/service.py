@@ -10,6 +10,7 @@ from backend.app.core.config import settings
 from backend.app.schemas.camera import CameraFrameIn, CameraStatusResponse
 from backend.app.modules.imagenes.service import image_service
 from backend.app.modules.deteccion.service import detection_service
+from backend.app.modules.clasificacion.service import classification_service
 from backend.app.modules.incidentes.service import incidente_service
 from backend.app.schemas.incidente import IncidenteCreate
 from backend.app.core.websocket_manager import ws_manager
@@ -96,34 +97,61 @@ class CameraService:
             annotated_image=annotated_cv if has_detections else None
         )
 
-        # Automatic Incident creation for significant detections
-        incidents_created = []
-        for det in detections:
-            if det.confidence >= 0.70 or det.severity in ["alta", "critica"]:
-                inc_type = det.label if det.label in ["poste_luz", "vegetacion_invasiva", "obstruccion_via"] else "otro"
-                inc_create = IncidenteCreate(
-                    drone_id=drone_id,
-                    tipo=inc_type,
-                    severidad=det.severity,
-                    descripcion=det.description or f"Detección de {det.label} con confianza {det.confidence*100:.0f}%",
-                    pos_x=frame_data.pos_x or 0.0,
-                    pos_y=frame_data.pos_y or 0.0,
-                    pos_z=frame_data.pos_z or 0.0,
-                    confidence=det.confidence,
-                    imagen_id=img_record.id,
-                    estado="reportado"
-                )
-                inc_record = await incidente_service.create_incidente(db, inc_create)
-                incidents_created.append(inc_record.id)
+        # 4. Clasificación, Normalización e Interpretación Vial (Semana 6)
+        classification_result = classification_service.classify_detections(
+            raw_detections=detections,
+            drone_id=drone_id,
+            frame_id=frame_id_str if should_run else None,
+            timestamp=captured_time,
+            pos_x=frame_data.pos_x,
+            pos_y=frame_data.pos_y,
+            pos_z=frame_data.pos_z,
+            image_id=img_record.id,
+            image_dims=(w, h)
+        )
 
-        # Broadcast live camera update & detection alert to WebSocket clients
+        # 5. Generación de Incidentes calificados y no duplicados en SQLite
+        incidents_created = []
+        valid_incident_states = {"reportado", "en_revision", "atendido", "descartado"}
+        for road_det in classification_result.detections:
+            if road_det.is_incident_candidate and not road_det.is_duplicate and road_det.validation_passed:
+
+                try:
+                    mapped_estado = (
+                        "en_revision"
+                        if road_det.review_status == "pendiente_revision"
+                        else (road_det.review_status if road_det.review_status in valid_incident_states else "reportado")
+                    )
+                    inc_create = IncidenteCreate(
+                        drone_id=drone_id,
+                        tipo=road_det.normalized_category,
+                        severidad=road_det.severity,
+                        descripcion=road_det.description or road_det.justification or f"Anomalía vial detectada: {road_det.normalized_category}",
+                        pos_x=frame_data.pos_x, # None si la ubicación es ausente
+                        pos_y=frame_data.pos_y,
+                        pos_z=frame_data.pos_z,
+                        coordenadas_tipo="simulacion_webots",
+                        confidence=road_det.confidence,
+                        imagen_id=img_record.id,
+                        estado=mapped_estado,
+                        timestamp=captured_time
+                    )
+                    inc_record = await incidente_service.create_incidente(db, inc_create)
+                    road_det.incident_id = inc_record.id
+                    incidents_created.append(inc_record.id)
+                except Exception as ex:
+                    logger.error(f"Error registrando incidente calificado en SQLite: {ex}")
+
+        # Broadcast live camera update & structured road detections to WebSocket clients
         await ws_manager.broadcast("camera_stream", {
             "drone_id": drone_id,
             "timestamp": captured_time.isoformat(),
             "frame_base64": annotated_b64 or b64_image,
-            "detections": [d.model_dump() for d in detections],
-            "total_detected": len(detections),
+            "detections": [d.model_dump() for d in classification_result.detections],
+            "total_detected": classification_result.total_valid,
+            "total_raw": len(detections),
             "inference_time_ms": round(elapsed_ms, 2),
+            "classification_time_ms": classification_result.processing_time_ms,
             "image_id": img_record.id,
             "width": w,
             "height": h,
@@ -134,10 +162,11 @@ class CameraService:
             "success": True,
             "drone_id": drone_id,
             "image_id": img_record.id,
-            "detections_count": len(detections),
-            "detections": detections,
+            "detections_count": classification_result.total_valid,
+            "detections": classification_result.detections,
             "incidents_created": incidents_created,
             "inference_time_ms": elapsed_ms,
+            "classification_time_ms": classification_result.processing_time_ms,
             "width": w,
             "height": h,
             "captured_at": captured_time.isoformat()
@@ -188,4 +217,3 @@ class CameraService:
         )
 
 camera_service = CameraService()
-
